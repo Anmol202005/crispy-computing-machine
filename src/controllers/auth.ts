@@ -41,7 +41,7 @@ export const registerUser = async(
         });
 
         try{
-            sendOtp(newUser);
+            await sendOtp(newUser);
         }catch(error:any){
             if(error instanceof OtpTooRecentError) {
                 const diffInSec = error.diffInSec;
@@ -182,12 +182,12 @@ export const forgotPassword = async(req: Request,res: Response)=>{
 
 export const otpVerification = async (req: Request, res: Response) =>{
 
-    const{email, vOtp} = req.body;
-    if(await verifyOtp(email,vOtp)){
+    const{email, otp} = req.body;
+    if(await verifyOtp(email,otp)){
         const user = await User.findOne({ email });
         
         user!.isVerified = true;
-        user!.save;
+        await user!.save();
         const token = jwt.sign(
           { userId: (user!._id as mongoose.Types.ObjectId).toString(), email: user!.email , username: user!.username},
           JWT_SECRET!,

@@ -31,7 +31,7 @@ export const sendOtp = async (
             throw new OtpTooRecentError(30-diffInMs/1000);
         }
         else{
-            otp.deleteOne({ email: user.email })
+            await otp.deleteOne({ email: user.email })
         }
     }
 
@@ -78,6 +78,8 @@ export const verifyOtp = async (
     vOtp:string
 ) => {
     const existingOtp = await otp.findOne({ email, otp:vOtp, type: OtpType.REGISTER });
+    console.log(existingOtp);
+    console.log(email, vOtp)
     if(existingOtp){
         const now = new Date();
         const diffInMs = now.getTime() - existingOtp.createdAt.getTime();
