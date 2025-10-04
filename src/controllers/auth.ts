@@ -3,9 +3,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import type { RegisterRequest, LoginRequest, AuthRequest } from '../types/index';
 import { User } from '../models/user';
-import { sendOtp, verifyOtp } from '../services/otp.service';
+import { sendForgotPasswordOtp, sendOtp, verifyForgotPasswordOtp, verifyOtp } from '../services/otp.service';
 import { OtpTooRecentError } from '../services/otp.service';
 import mongoose from 'mongoose';
+import { OtpType } from '../models/otp';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -60,10 +61,8 @@ export const registerUser = async(
         res.status(201).json({
           message: 'Registration successful! Please check your email for OTP.',
           user: {
-            id: newUser._id,
             username: newUser.username,
             email: newUser.email,
-            elo: newUser.elo,
           },
         });
     }
@@ -73,6 +72,47 @@ export const registerUser = async(
         error: error.message });
     }
 
+}
+
+export const resendOtp = async (req:Request, res:Response) => {
+  const {email, type} = req.body;
+  if(type == OtpType.REGISTER){
+  const user = await User.findOne({email, isVerified:false});
+  if(!user){
+    return res.status(200).json({ message: 'OTP sent if the user exists.' });
+  }
+  try{
+      sendOtp(user);
+      return res.status(200).json({ message: 'OTP sent if the user exists.' });
+    }catch(error:any){
+      if(error instanceof OtpTooRecentError) {
+        const diffInSec = error.diffInSec;
+        res.status(400).json({ 
+          message: `Too many recent requests. Try after ${diffInSec} seconds`
+        });
+      }
+      else{
+          res.status(500).json({ 
+          message: 'Internal Server Error', 
+          error:error.info
+          });
+        }
+            
+    }
+  }
+  else if (type == OtpType.FORGOT_PASSWORD){
+    const user = await User.findOne({email, isVerified:true});
+
+    if(!user){
+      return res.status(200).json({message: "OTP send if the user exists"})
+    }
+
+    sendForgotPasswordOtp(user);
+    return res.status(200).json({message: "OTP send if the user exists"})
+  }
+  else{
+    return res.status(400).json({message: "Invalid Type"})
+  }
 }
 
 export const login = async (req: Request, res: Response) => {
@@ -125,6 +165,21 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
+export const forgotPassword = async(req: Request,res: Response)=>{
+
+  const {email} = req.body;
+
+  const user = await User.findOne({email, isVerified:true});
+
+  if(!user){
+    return res.status(200).json({message: "OTP send if the user exists"})
+  }
+
+  sendForgotPasswordOtp(user);
+  return res.status(200).json({message: "OTP send if the user exists"})
+}
+
+
 export const otpVerification = async (req: Request, res: Response) =>{
 
     const{email, vOtp} = req.body;
@@ -139,7 +194,7 @@ export const otpVerification = async (req: Request, res: Response) =>{
           { expiresIn: '24h' }
         );
         res.status(200).json({
-          message: 'Login successful',
+          message: 'OTP verification successful',
           token,
           user: {
             id: user!._id,
@@ -154,5 +209,69 @@ export const otpVerification = async (req: Request, res: Response) =>{
     }
     
 }
+
+export const forgotPasswordOtpVerification = async (req: Request, res: Response) =>{
+
+    const{email, vOtp} = req.body;
+    if(await verifyForgotPasswordOtp(email,vOtp)){
+        const user = await User.findOne({ email });
+        
+        user!.isVerified = true;
+        user!.save;
+        const token = jwt.sign(
+          { userId: (user!._id as mongoose.Types.ObjectId).toString(), email: user!.email , username: user!.username},
+          JWT_SECRET!,
+          { expiresIn: '10m' }
+        );
+        res.status(200).json({
+          message: 'Otp Verified successful',
+          forgotPasswordAccessToken: token,
+          user: {
+            id: user!._id,
+            username: user!.username,
+            email: user!.email,
+            elo: user!.elo,
+          },
+        });
+    }
+    else{
+        return res.status(401).json({ message: 'Invalid OTP' });
+    }
+    
+}
+
+export const changePassword = async (req: AuthRequest, res: Response) => {
+  try {
+    const { newPassword } = req.body;
+    
+    const email = req.user?.email;
+
+    if (!newPassword) {
+      return res.status(400).json({ message: 'New password is required' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    user.password = hashedPassword;
+    await user.save();
+
+    res.status(200).json({ 
+      message: 'Password changed successfully! You can now log in.' 
+    });
+  } catch (error: any) {
+    console.error('Change password error:', error);
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message 
+    });
+  }
+};
+
+
 
 
