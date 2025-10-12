@@ -1,19 +1,9 @@
-import {Router} from "express"
-
-import {
-    registerUser,
-    login,
-    resendOtp,
-    forgotPassword,
-    otpVerification,
-    forgotPasswordOtpVerification,
-    changePassword
-} from "../controllers/auth"
-
-import { authenticateToken } from "../middleware/auth"
-
-const router = Router();
-
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const auth_1 = require("../controllers/auth");
+const auth_2 = require("../middleware/auth");
+const router = (0, express_1.Router)();
 /**
  * @swagger
  * /api/auth/register:
@@ -54,8 +44,7 @@ const router = Router();
  *       409:
  *         description: User already exists
  */
-router.post('/register', registerUser);
-
+router.post('/register', auth_1.registerUser);
 /**
  * @swagger
  * /api/auth/verify-email:
@@ -85,8 +74,7 @@ router.post('/register', registerUser);
  *       400:
  *         description: Invalid or expired OTP
  */
-router.post('/verify-email', otpVerification);
-
+router.post('/verify-email', auth_1.otpVerification);
 /**
  * @swagger
  * /api/auth/resend-otp:
@@ -110,8 +98,7 @@ router.post('/verify-email', otpVerification);
  *       200:
  *         description: OTP resent successfully
  */
-router.post('/resend-otp', resendOtp);
-
+router.post('/resend-otp', auth_1.resendOtp);
 /**
  * @swagger
  * /api/auth/login:
@@ -144,8 +131,7 @@ router.post('/resend-otp', resendOtp);
  *       401:
  *         description: Invalid credentials
  */
-router.post('/login', login);
-
+router.post('/login', auth_1.login);
 /**
  * @swagger
  * /api/auth/forgot-password:
@@ -169,8 +155,7 @@ router.post('/login', login);
  *       200:
  *         description: Reset OTP sent successfully
  */
-router.post('/forgot-password', forgotPassword);
-
+router.post('/forgot-password', auth_1.forgotPassword);
 /**
  * @swagger
  * /api/auth/verify-reset-otp:
@@ -198,8 +183,7 @@ router.post('/forgot-password', forgotPassword);
  *       200:
  *         description: OTP verified successfully
  */
-router.post('/verify-reset-otp', forgotPasswordOtpVerification);
-
+router.post('/verify-reset-otp', auth_1.forgotPasswordOtpVerification);
 /**
  * @swagger
  * /api/auth/change-password:
@@ -227,6 +211,5 @@ router.post('/verify-reset-otp', forgotPasswordOtpVerification);
  *       401:
  *         description: Unauthorized
  */
-router.post('/change-password', authenticateToken, changePassword);
-
-export default router;
+router.post('/change-password', auth_2.authenticateToken, auth_1.changePassword);
+exports.default = router;
