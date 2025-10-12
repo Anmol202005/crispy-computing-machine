@@ -28,8 +28,10 @@ app.use(cors({
   origin: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true,
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
-  optionsSuccessStatus: 200
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept"],
+  exposedHeaders: ["Content-Type", "Authorization"],
+  optionsSuccessStatus: 200,
+  preflightContinue: false
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
