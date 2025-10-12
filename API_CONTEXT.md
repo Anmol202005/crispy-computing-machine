@@ -2,7 +2,10 @@
 
 ## Base URL
 - **Development:** `http://localhost:8080`
-- **Swagger Docs:** `http://localhost:8080/api-docs`
+- **Production:** `https://tomatowithchilli.duckdns.org`
+- **Swagger Docs (Dev):** `http://localhost:8080/api-docs`
+- **Swagger Docs (Prod):** `https://tomatowithchilli.duckdns.org/api-docs`
+- **Health Check:** `GET /health`
 
 ## Authentication
 - **Type:** Bearer JWT Token
@@ -99,7 +102,16 @@
 
 ### Connection
 ```javascript
+// Development
 const socket = io('http://localhost:8080', {
+  auth: {
+    token: 'jwt_token', // For registered users
+    guestId: 'guest_id'  // For guest users
+  }
+});
+
+// Production
+const socket = io('https://tomatowithchilli.duckdns.org', {
   auth: {
     token: 'jwt_token', // For registered users
     guestId: 'guest_id'  // For guest users
