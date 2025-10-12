@@ -31,7 +31,7 @@ export const registerUser = async(
         }
         const hashedPassword = await bcrypt.hash(password, 10);
         if(await User.findOne({ username, isVerified: false})){
-            User.deleteOne({ username, isVerified: false});
+            await User.deleteOne({ username, isVerified: false});
         }
         const newUser = await User.create({
           username,
@@ -82,7 +82,7 @@ export const resendOtp = async (req:Request, res:Response) => {
     return res.status(200).json({ message: 'OTP sent if the user exists.' });
   }
   try{
-      sendOtp(user);
+      await sendOtp(user);
       return res.status(200).json({ message: 'OTP sent if the user exists.' });
     }catch(error:any){
       if(error instanceof OtpTooRecentError) {
@@ -107,8 +107,13 @@ export const resendOtp = async (req:Request, res:Response) => {
       return res.status(200).json({message: "OTP send if the user exists"})
     }
 
-    sendForgotPasswordOtp(user);
-    return res.status(200).json({message: "OTP send if the user exists"})
+    try {
+      await sendForgotPasswordOtp(user);
+      return res.status(200).json({message: "OTP sent if the user exists"})
+    } catch (error: any) {
+      console.error('Error sending forgot password OTP:', error);
+      return res.status(500).json({message: "Internal server error"});
+    }
   }
   else{
     return res.status(400).json({message: "Invalid Type"})
@@ -175,8 +180,13 @@ export const forgotPassword = async(req: Request,res: Response)=>{
     return res.status(200).json({message: "OTP send if the user exists"})
   }
 
-  sendForgotPasswordOtp(user);
-  return res.status(200).json({message: "OTP send if the user exists"})
+  try {
+    await sendForgotPasswordOtp(user);
+    return res.status(200).json({message: "OTP sent if the user exists"})
+  } catch (error: any) {
+    console.error('Error sending forgot password OTP:', error);
+    return res.status(500).json({message: "Internal server error"});
+  }
 }
 
 
@@ -212,25 +222,27 @@ export const otpVerification = async (req: Request, res: Response) =>{
 
 export const forgotPasswordOtpVerification = async (req: Request, res: Response) =>{
 
-    const{email, vOtp} = req.body;
-    if(await verifyForgotPasswordOtp(email,vOtp)){
+    const{email, otp} = req.body;
+    if(await verifyForgotPasswordOtp(email,otp)){
         const user = await User.findOne({ email });
-        
-        user!.isVerified = true;
-        user!.save;
+
+        if (!user) {
+          return res.status(404).json({ message: 'User not found' });
+        }
+
         const token = jwt.sign(
-          { userId: (user!._id as mongoose.Types.ObjectId).toString(), email: user!.email , username: user!.username},
+          { userId: (user._id as mongoose.Types.ObjectId).toString(), email: user.email , username: user.username},
           JWT_SECRET!,
           { expiresIn: '10m' }
         );
         res.status(200).json({
-          message: 'Otp Verified successful',
+          message: 'OTP verified successfully',
           forgotPasswordAccessToken: token,
           user: {
-            id: user!._id,
-            username: user!.username,
-            email: user!.email,
-            elo: user!.elo,
+            id: user._id,
+            username: user.username,
+            email: user.email,
+            elo: user.elo,
           },
         });
     }
