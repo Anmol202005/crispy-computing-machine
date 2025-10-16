@@ -105,6 +105,52 @@ const options = {
                         isWaiting: { type: 'boolean' },
                         guestId: { type: 'string' }
                     }
+                },
+                MatchmakingNotification: {
+                    type: 'object',
+                    properties: {
+                        gameId: { type: 'string', description: 'The ID of the newly created game' },
+                        opponent: {
+                            type: 'object',
+                            properties: {
+                                userId: { type: 'string' },
+                                username: { type: 'string' },
+                                isGuest: { type: 'boolean' }
+                            }
+                        }
+                    },
+                    description: 'WebSocket notification sent when a match is found'
+                },
+                WebSocketEvents: {
+                    type: 'object',
+                    description: 'WebSocket Events Documentation',
+                    properties: {
+                        client_events: {
+                            type: 'object',
+                            description: 'Events that clients can emit',
+                            properties: {
+                                'join-game': { type: 'string', description: 'Join a game room with gameId' },
+                                'make-move': { type: 'object', description: 'Make a chess move' },
+                                'resign': { type: 'string', description: 'Resign from game with gameId' },
+                                'chat-message': { type: 'object', description: 'Send chat message' }
+                            }
+                        },
+                        server_events: {
+                            type: 'object',
+                            description: 'Events that server emits to clients',
+                            properties: {
+                                'matchmaking-found': { $ref: '#/components/schemas/MatchmakingNotification' },
+                                'game-state': { type: 'object', description: 'Current game state' },
+                                'move-made': { type: 'object', description: 'Move made by player' },
+                                'game-over': { type: 'object', description: 'Game ended' },
+                                'game-resigned': { type: 'object', description: 'Player resigned' },
+                                'players-connected': { type: 'object', description: 'Player connection status' },
+                                'chat-message': { type: 'object', description: 'Chat message received' },
+                                'error': { type: 'object', description: 'Error message' },
+                                'move-error': { type: 'object', description: 'Invalid move error' }
+                            }
+                        }
+                    }
                 }
             }
         },

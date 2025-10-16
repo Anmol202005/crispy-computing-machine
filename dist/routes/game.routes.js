@@ -6,17 +6,127 @@ const game_controller_1 = require("../controllers/game.controller");
 const router = (0, express_1.Router)();
 /**
  * @swagger
+ * /websocket:
+ *   get:
+ *     tags:
+ *       - WebSocket
+ *     summary: WebSocket Connection & Events
+ *     description: |
+ *       ## WebSocket Connection
+ *
+ *       Connect to: `wss://tomatowithchilli.duckdns.org` or `ws://localhost:8080`
+ *
+ *       **Authentication:**
+ *       ```javascript
+ *       // For registered users
+ *       const socket = io('wss://tomatowithchilli.duckdns.org', {
+ *         auth: { token: 'your_jwt_token' }
+ *       });
+ *
+ *       // For guest users
+ *       const socket = io('wss://tomatowithchilli.duckdns.org', {
+ *         auth: { guestId: 'your_guest_id' }
+ *       });
+ *       ```
+ *
+ *       ## Server Events (Listen)
+ *
+ *       **Matchmaking Events:**
+ *       - `matchmaking-found` - Receive match notification with gameId and opponent info
+ *
+ *       **Game Events:**
+ *       - `game-state` - Current game state when joining a game
+ *       - `move-made` - Opponent made a move
+ *       - `game-over` - Game ended (checkmate, draw, etc.)
+ *       - `game-resigned` - Opponent resigned
+ *       - `players-connected` - Player connection status updates
+ *
+ *       **Chat Events:**
+ *       - `chat-message` - Receive chat messages from opponent
+ *
+ *       **Error Events:**
+ *       - `error` - General errors
+ *       - `move-error` - Invalid move attempts
+ *
+ *       ## Client Events (Emit)
+ *
+ *       **Game Events:**
+ *       - `join-game` - Join a game room: `socket.emit('join-game', gameId)`
+ *       - `make-move` - Make a move: `socket.emit('make-move', { gameId, move })`
+ *       - `resign` - Resign from game: `socket.emit('resign', gameId)`
+ *
+ *       **Chat Events:**
+ *       - `chat-message` - Send chat: `socket.emit('chat-message', { gameId, message })`
+ *
+ *       ## Matchmaking Flow Example
+ *
+ *       ```javascript
+ *       const socket = io('wss://tomatowithchilli.duckdns.org', {
+ *         auth: { token: 'jwt_token' }
+ *       });
+ *
+ *       // Listen for match notifications
+ *       socket.on('matchmaking-found', (data) => {
+ *         console.log('Match found!');
+ *         console.log('Game ID:', data.gameId);
+ *         console.log('Opponent:', data.opponent.username);
+ *
+ *         // Join the game room
+ *         socket.emit('join-game', data.gameId);
+ *       });
+ *
+ *       // Join matchmaking via REST API
+ *       fetch('/api/game/matchmaking/join', {
+ *         method: 'POST',
+ *         headers: { 'Authorization': 'Bearer ' + token }
+ *       });
+ *       ```
+ *
+ *     responses:
+ *       200:
+ *         description: WebSocket connection established
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/WebSocketEvents'
+ */
+/**
+ * @swagger
  * /api/game/matchmaking/join:
  *   post:
  *     tags:
  *       - Matchmaking
  *     summary: Join matchmaking queue
- *     description: Join the matchmaking queue to find an opponent based on ELO rating
+ *     description: |
+ *       Join the matchmaking queue to find an opponent based on ELO rating.
+ *
+ *       **Important**: Connect to WebSocket first to receive real-time match notifications!
+ *
+ *       **WebSocket Flow:**
+ *       1. Connect to WebSocket with JWT token
+ *       2. Listen for `matchmaking-found` event
+ *       3. Call this endpoint to join matchmaking
+ *       4. Receive notification when matched with opponent
+ *
+ *       **Example:**
+ *       ```javascript
+ *       const socket = io('wss://tomatowithchilli.duckdns.org', {
+ *         auth: { token: 'your_jwt_token' }
+ *       });
+ *
+ *       socket.on('matchmaking-found', (data) => {
+ *         console.log('Match found!', data.gameId);
+ *         // Redirect to game
+ *       });
+ *       ```
  *     security:
  *       - BearerAuth: []
  *     responses:
  *       200:
- *         description: Successfully joined matchmaking or found a match
+ *         description: |
+ *           Successfully joined matchmaking or found a match.
+ *           - If `isWaiting: true` - you're in queue, wait for WebSocket notification
+ *           - If `gameId` present - immediate match found
  *         content:
  *           application/json:
  *             schema:
@@ -32,7 +142,27 @@ router.post('/matchmaking/join', auth_1.authenticateToken, game_controller_1.joi
  *     tags:
  *       - Matchmaking
  *     summary: Join matchmaking as guest
- *     description: Join matchmaking queue as a guest player without registration
+ *     description: |
+ *       Join matchmaking queue as a guest player without registration.
+ *
+ *       **Important**: Connect to WebSocket first to receive real-time match notifications!
+ *
+ *       **WebSocket Flow for Guests:**
+ *       1. Connect to WebSocket with guestId (returned from this endpoint)
+ *       2. Listen for `matchmaking-found` event
+ *       3. Receive notification when matched with opponent
+ *
+ *       **Example:**
+ *       ```javascript
+ *       // After calling this endpoint and getting guestId
+ *       const socket = io('wss://tomatowithchilli.duckdns.org', {
+ *         auth: { guestId: 'your_guest_id' }
+ *       });
+ *
+ *       socket.on('matchmaking-found', (data) => {
+ *         console.log('Match found!', data.gameId);
+ *       });
+ *       ```
  *     requestBody:
  *       required: true
  *       content:
