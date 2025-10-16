@@ -13,6 +13,7 @@ const swagger_1 = require("./config/swagger");
 const auth_routes_1 = __importDefault(require("./routes/auth.routes"));
 const game_routes_1 = __importDefault(require("./routes/game.routes"));
 const sockets_1 = require("./sockets");
+const matchmaking_service_1 = require("./services/matchmaking.service");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const httpServer = (0, http_1.createServer)(app);
@@ -24,6 +25,17 @@ const io = new socket_io_1.Server(httpServer, {
     }
 });
 const PORT = process.env.PORT || 5000;
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+        return;
+    }
+    next();
+});
 app.use(express_1.default.json());
 app.use(express_1.default.urlencoded({ extended: true }));
 app.get('/health', (req, res) => {
@@ -49,6 +61,7 @@ app.use((err, req, res, next) => {
     });
 });
 sockets_1.gameSocketService.setupSocket(io);
+matchmaking_service_1.matchmakingService.setSocketServer(io);
 const startServer = async () => {
     try {
         await (0, database_1.connectDatabase)();

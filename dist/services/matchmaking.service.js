@@ -8,13 +8,20 @@ class MatchmakingService {
         this.ELO_RANGE_BASE = 100;
         this.ELO_RANGE_INCREMENT = 50;
         this.MAX_WAIT_TIME = 30000; // 30 seconds
+        this.io = null;
+    }
+    setSocketServer(io) {
+        this.io = io;
     }
     async joinMatchmaking(request) {
         const opponent = this.findOpponent(request);
         if (opponent) {
             this.waitingPlayers.delete(opponent.userId);
             const game = await this.createGame(request, opponent);
-            return { gameId: game._id.toString() };
+            const gameId = game._id.toString();
+            // Notify both players via WebSocket
+            this.notifyMatchFound(request, opponent, gameId);
+            return { gameId };
         }
         this.waitingPlayers.set(request.userId, Object.assign(Object.assign({}, request), { timestamp: Date.now() }));
         this.scheduleTimeoutCleanup(request.userId);
@@ -74,6 +81,30 @@ class MatchmakingService {
     }
     isPlayerWaiting(userId) {
         return this.waitingPlayers.has(userId);
+    }
+    notifyMatchFound(player1, player2, gameId) {
+        if (!this.io)
+            return;
+        const matchData = {
+            gameId,
+            opponent: null
+        };
+        // Notify player1 about the match with player2 as opponent
+        const player1Data = Object.assign(Object.assign({}, matchData), { opponent: {
+                userId: player2.userId,
+                username: player2.isGuest ? player2.guestName : player2.username,
+                isGuest: player2.isGuest || false
+            } });
+        // Notify player2 about the match with player1 as opponent
+        const player2Data = Object.assign(Object.assign({}, matchData), { opponent: {
+                userId: player1.userId,
+                username: player1.isGuest ? player1.guestName : player1.username,
+                isGuest: player1.isGuest || false
+            } });
+        // Broadcast to all connected clients (they'll filter by user)
+        this.io.emit('matchmaking-found', Object.assign({ targetUserId: player1.userId }, player1Data));
+        this.io.emit('matchmaking-found', Object.assign({ targetUserId: player2.userId }, player2Data));
+        console.log(`Match found: ${player1.isGuest ? player1.guestName : player1.username} vs ${player2.isGuest ? player2.guestName : player2.username} - Game ID: ${gameId}`);
     }
 }
 exports.matchmakingService = new MatchmakingService();

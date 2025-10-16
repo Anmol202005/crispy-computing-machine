@@ -27,7 +27,7 @@ class GameSocketService {
                     return next(new Error('No token provided'));
                 }
                 const decoded = jsonwebtoken_1.default.verify(token, process.env.JWT_SECRET);
-                const user = await user_1.User.findById(decoded.id);
+                const user = await user_1.User.findById(decoded.userId);
                 if (!user) {
                     return next(new Error('User not found'));
                 }

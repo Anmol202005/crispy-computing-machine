@@ -1,5 +1,6 @@
 import { Game, IGame } from '../models/game.models';
 import { User, IUser } from '../models/user';
+import { Server } from 'socket.io';
 
 export interface MatchmakingRequest {
   userId: string;
@@ -14,6 +15,11 @@ class MatchmakingService {
   private readonly ELO_RANGE_BASE = 100;
   private readonly ELO_RANGE_INCREMENT = 50;
   private readonly MAX_WAIT_TIME = 30000; // 30 seconds
+  private io: Server | null = null;
+
+  setSocketServer(io: Server): void {
+    this.io = io;
+  }
 
   async joinMatchmaking(request: MatchmakingRequest): Promise<{ gameId?: string; isWaiting?: boolean }> {
     const opponent = this.findOpponent(request);
@@ -21,7 +27,12 @@ class MatchmakingService {
     if (opponent) {
       this.waitingPlayers.delete(opponent.userId);
       const game = await this.createGame(request, opponent);
-      return { gameId: (game._id as any).toString() };
+      const gameId = (game._id as any).toString();
+
+      // Notify both players via WebSocket
+      this.notifyMatchFound(request, opponent, gameId);
+
+      return { gameId };
     }
 
     this.waitingPlayers.set(request.userId, {
@@ -99,6 +110,47 @@ class MatchmakingService {
 
   isPlayerWaiting(userId: string): boolean {
     return this.waitingPlayers.has(userId);
+  }
+
+  private notifyMatchFound(player1: MatchmakingRequest, player2: MatchmakingRequest, gameId: string): void {
+    if (!this.io) return;
+
+    const matchData = {
+      gameId,
+      opponent: null as any
+    };
+
+    // Notify player1 about the match with player2 as opponent
+    const player1Data = {
+      ...matchData,
+      opponent: {
+        userId: player2.userId,
+        username: player2.isGuest ? player2.guestName : player2.username,
+        isGuest: player2.isGuest || false
+      }
+    };
+
+    // Notify player2 about the match with player1 as opponent
+    const player2Data = {
+      ...matchData,
+      opponent: {
+        userId: player1.userId,
+        username: player1.isGuest ? player1.guestName : player1.username,
+        isGuest: player1.isGuest || false
+      }
+    };
+
+    // Broadcast to all connected clients (they'll filter by user)
+    this.io.emit('matchmaking-found', {
+      targetUserId: player1.userId,
+      ...player1Data
+    });
+    this.io.emit('matchmaking-found', {
+      targetUserId: player2.userId,
+      ...player2Data
+    });
+
+    console.log(`Match found: ${player1.isGuest ? player1.guestName : player1.username} vs ${player2.isGuest ? player2.guestName : player2.username} - Game ID: ${gameId}`);
   }
 }
 

@@ -39,7 +39,7 @@ class GameSocketService {
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
-        const user = await User.findById(decoded.id);
+        const user = await User.findById(decoded.userId);
 
         if (!user) {
           return next(new Error('User not found'));

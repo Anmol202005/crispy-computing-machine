@@ -9,6 +9,7 @@ import { setupSwagger } from './config/swagger';
 import authRoutes from './routes/auth.routes';
 import gameRoutes from './routes/game.routes';
 import { gameSocketService } from './sockets';
+import { matchmakingService } from './services/matchmaking.service';
 
 dotenv.config();
 
@@ -68,6 +69,7 @@ app.use((err: any, req: any, res: any, next: any) => {
 });
 
 gameSocketService.setupSocket(io);
+matchmakingService.setSocketServer(io);
 
 const startServer = async () => {
   try {

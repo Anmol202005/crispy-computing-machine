@@ -27,7 +27,7 @@ const registerUser = async (req, res) => {
         }
         const hashedPassword = await bcryptjs_1.default.hash(password, 10);
         if (await user_1.User.findOne({ username, isVerified: false })) {
-            user_1.User.deleteOne({ username, isVerified: false });
+            await user_1.User.deleteOne({ username, isVerified: false });
         }
         const newUser = await user_1.User.create({
             username,
@@ -76,7 +76,7 @@ const resendOtp = async (req, res) => {
             return res.status(200).json({ message: 'OTP sent if the user exists.' });
         }
         try {
-            (0, otp_service_1.sendOtp)(user);
+            await (0, otp_service_1.sendOtp)(user);
             return res.status(200).json({ message: 'OTP sent if the user exists.' });
         }
         catch (error) {
@@ -99,8 +99,14 @@ const resendOtp = async (req, res) => {
         if (!user) {
             return res.status(200).json({ message: "OTP send if the user exists" });
         }
-        (0, otp_service_1.sendForgotPasswordOtp)(user);
-        return res.status(200).json({ message: "OTP send if the user exists" });
+        try {
+            await (0, otp_service_1.sendForgotPasswordOtp)(user);
+            return res.status(200).json({ message: "OTP sent if the user exists" });
+        }
+        catch (error) {
+            console.error('Error sending forgot password OTP:', error);
+            return res.status(500).json({ message: "Internal server error" });
+        }
     }
     else {
         return res.status(400).json({ message: "Invalid Type" });
@@ -153,8 +159,14 @@ const forgotPassword = async (req, res) => {
     if (!user) {
         return res.status(200).json({ message: "OTP send if the user exists" });
     }
-    (0, otp_service_1.sendForgotPasswordOtp)(user);
-    return res.status(200).json({ message: "OTP send if the user exists" });
+    try {
+        await (0, otp_service_1.sendForgotPasswordOtp)(user);
+        return res.status(200).json({ message: "OTP sent if the user exists" });
+    }
+    catch (error) {
+        console.error('Error sending forgot password OTP:', error);
+        return res.status(500).json({ message: "Internal server error" });
+    }
 };
 exports.forgotPassword = forgotPassword;
 const otpVerification = async (req, res) => {
@@ -181,14 +193,15 @@ const otpVerification = async (req, res) => {
 };
 exports.otpVerification = otpVerification;
 const forgotPasswordOtpVerification = async (req, res) => {
-    const { email, vOtp } = req.body;
-    if (await (0, otp_service_1.verifyForgotPasswordOtp)(email, vOtp)) {
+    const { email, otp } = req.body;
+    if (await (0, otp_service_1.verifyForgotPasswordOtp)(email, otp)) {
         const user = await user_1.User.findOne({ email });
-        user.isVerified = true;
-        user.save;
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
         const token = jsonwebtoken_1.default.sign({ userId: user._id.toString(), email: user.email, username: user.username }, JWT_SECRET, { expiresIn: '10m' });
         res.status(200).json({
-            message: 'Otp Verified successful',
+            message: 'OTP verified successfully',
             forgotPasswordAccessToken: token,
             user: {
                 id: user._id,
