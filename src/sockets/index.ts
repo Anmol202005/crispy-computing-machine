@@ -161,8 +161,7 @@ class GameSocketService {
             message: 'You resigned from the game'
           });
 
-          // Notify all players in the game room about the resignation
-          io.to(gameId).emit('game-resigned', {
+          const resignationData = {
             gameId,
             resignedBy: resignedPlayer,
             resignedByUserId: userId,
@@ -172,7 +171,21 @@ class GameSocketService {
               username: winnerName,
               color: isWhiteWinner ? 'white' : 'black'
             }
-          });
+          };
+
+          // Notify all players in the game room about the resignation
+          io.to(gameId).emit('game-resigned', resignationData);
+
+          // Also send direct notifications to both players to ensure delivery
+          const whitePlayerSocketId = this.playerSockets.get(game.whitePlayerId || '');
+          const blackPlayerSocketId = this.playerSockets.get(game.blackPlayerId || '');
+
+          if (whitePlayerSocketId) {
+            io.to(whitePlayerSocketId).emit('game-resigned', resignationData);
+          }
+          if (blackPlayerSocketId) {
+            io.to(blackPlayerSocketId).emit('game-resigned', resignationData);
+          }
 
         } catch (error) {
           console.error('Error resigning game:', error);
