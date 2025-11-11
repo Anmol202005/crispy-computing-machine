@@ -240,6 +240,10 @@ class GameSocketService {
   getActiveGames(): number {
     return this.gameRooms.size;
   }
+
+  getPlayerSocketId(userId: string): string | undefined {
+    return this.playerSockets.get(userId);
+  }
 }
 
 export const gameSocketService = new GameSocketService();

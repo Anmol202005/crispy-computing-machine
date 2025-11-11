@@ -1,6 +1,7 @@
 import { Game, IGame } from '../models/game.models';
 import { User, IUser } from '../models/user';
 import { Server } from 'socket.io';
+import { gameSocketService } from '../sockets/index';
 
 export interface MatchmakingRequest {
   userId: string;
@@ -115,37 +116,38 @@ class MatchmakingService {
   private notifyMatchFound(player1: MatchmakingRequest, player2: MatchmakingRequest, gameId: string): void {
     if (!this.io) return;
 
+    // Get socket IDs for both players
+    const player1SocketId = gameSocketService.getPlayerSocketId(player1.userId);
+    const player2SocketId = gameSocketService.getPlayerSocketId(player2.userId);
+
     // Notify player1 about the match with player2 as opponent
-    const player1Data = {
-      gameId,
-      opponent: {
-        userId: player2.userId,
-        username: player2.isGuest ? player2.guestName : player2.username,
-        isGuest: player2.isGuest || false
-      }
-    };
+    if (player1SocketId) {
+      const player1Data = {
+        gameId,
+        opponent: {
+          userId: player2.userId,
+          username: player2.isGuest ? player2.guestName : player2.username,
+          isGuest: player2.isGuest || false
+        }
+      };
+      this.io.to(player1SocketId).emit('matchmaking-found', player1Data);
+    }
 
     // Notify player2 about the match with player1 as opponent
-    const player2Data = {
-      gameId,
-      opponent: {
-        userId: player1.userId,
-        username: player1.isGuest ? player1.guestName : player1.username,
-        isGuest: player1.isGuest || false
-      }
-    };
-
-    // Send targeted notifications to each player
-    this.io.emit('matchmaking-found', {
-      targetUserId: player1.userId,
-      ...player1Data
-    });
-    this.io.emit('matchmaking-found', {
-      targetUserId: player2.userId,
-      ...player2Data
-    });
+    if (player2SocketId) {
+      const player2Data = {
+        gameId,
+        opponent: {
+          userId: player1.userId,
+          username: player1.isGuest ? player1.guestName : player1.username,
+          isGuest: player1.isGuest || false
+        }
+      };
+      this.io.to(player2SocketId).emit('matchmaking-found', player2Data);
+    }
 
     console.log(`Match found: ${player1.isGuest ? player1.guestName : player1.username} vs ${player2.isGuest ? player2.guestName : player2.username} - Game ID: ${gameId}`);
+    console.log(`Notifications sent to sockets: Player1(${player1SocketId}) Player2(${player2SocketId})`);
   }
 }
 
