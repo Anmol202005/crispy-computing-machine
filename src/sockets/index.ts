@@ -146,9 +146,32 @@ class GameSocketService {
             return;
           }
 
+          const game = result.game!;
+          const resignedPlayer = socket.user?.username || socket.guestId;
+          const winnerUserId = game.winner;
+
+          // Determine winner details
+          const isWhiteWinner = game.winner === game.whitePlayerId;
+          const winnerName = isWhiteWinner ? game.whitePlayerName : game.blackPlayerName;
+
+          // Send resignation confirmation to the player who resigned
+          socket.emit('resign-confirmed', {
+            gameId,
+            result: game.result,
+            message: 'You resigned from the game'
+          });
+
+          // Notify all players in the game room about the resignation
           io.to(gameId).emit('game-resigned', {
-            resignedBy: socket.user?.username || socket.guestId,
-            winner: result.game?.winner
+            gameId,
+            resignedBy: resignedPlayer,
+            resignedByUserId: userId,
+            result: game.result,
+            winner: {
+              userId: winnerUserId,
+              username: winnerName,
+              color: isWhiteWinner ? 'white' : 'black'
+            }
           });
 
         } catch (error) {
@@ -170,15 +193,6 @@ class GameSocketService {
         });
       });
 
-      socket.on('matchmaking-found', (data: { gameId: string; opponent: any }) => {
-        const opponentSocketId = this.playerSockets.get(data.opponent.userId);
-        if (opponentSocketId) {
-          io.to(opponentSocketId).emit('matchmaking-found', {
-            gameId: data.gameId,
-            opponent: socket.user?.username || socket.guestId
-          });
-        }
-      });
 
       socket.on('disconnect', () => {
         console.log('User disconnected:', socket.user?.username || socket.guestId);

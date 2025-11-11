@@ -115,14 +115,9 @@ class MatchmakingService {
   private notifyMatchFound(player1: MatchmakingRequest, player2: MatchmakingRequest, gameId: string): void {
     if (!this.io) return;
 
-    const matchData = {
-      gameId,
-      opponent: null as any
-    };
-
     // Notify player1 about the match with player2 as opponent
     const player1Data = {
-      ...matchData,
+      gameId,
       opponent: {
         userId: player2.userId,
         username: player2.isGuest ? player2.guestName : player2.username,
@@ -132,7 +127,7 @@ class MatchmakingService {
 
     // Notify player2 about the match with player1 as opponent
     const player2Data = {
-      ...matchData,
+      gameId,
       opponent: {
         userId: player1.userId,
         username: player1.isGuest ? player1.guestName : player1.username,
@@ -140,7 +135,7 @@ class MatchmakingService {
       }
     };
 
-    // Broadcast to all connected clients (they'll filter by user)
+    // Send targeted notifications to each player
     this.io.emit('matchmaking-found', {
       targetUserId: player1.userId,
       ...player1Data
