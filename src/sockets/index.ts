@@ -154,17 +154,10 @@ class GameSocketService {
           const isWhiteWinner = game.winner === game.whitePlayerId;
           const winnerName = isWhiteWinner ? game.whitePlayerName : game.blackPlayerName;
 
-          // Send resignation confirmation to the player who resigned
-          socket.emit('resign-confirmed', {
-            gameId,
-            result: game.result,
-            message: 'You resigned from the game'
-          });
-
           const resignationData = {
             gameId,
             resignedBy: resignedPlayer,
-            resignedByUserId: userId,
+            resignedPlayerId: userId,
             result: game.result,
             winner: {
               userId: winnerUserId,

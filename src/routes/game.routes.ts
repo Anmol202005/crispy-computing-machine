@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticateToken } from '../middleware/auth';
 import {
   joinMatchmaking,
+  registerGuest,
   joinGuestMatchmaking,
   leaveMatchmaking,
   getGame,
@@ -145,6 +146,78 @@ const router = Router();
  *         description: Unauthorized
  */
 router.post('/matchmaking/join', authenticateToken, joinMatchmaking);
+
+/**
+ * @swagger
+ * /api/game/guest/register:
+ *   post:
+ *     tags:
+ *       - Matchmaking
+ *     summary: Register as guest and get guest ID
+ *     description: |
+ *       **Step 1 of guest flow**: Register as a guest player and receive a unique guest ID.
+ *       Use this ID to connect to WebSocket before joining matchmaking.
+ *
+ *       **Complete Guest Flow:**
+ *       1. Call this endpoint to get guestId
+ *       2. Connect to WebSocket with guestId
+ *       3. Call `/matchmaking/join-guest` with guestId and socketId
+ *       4. Wait for `matchmaking-found` event
+ *
+ *       **Example:**
+ *       ```javascript
+ *       // Step 1: Register
+ *       const response = await fetch('/api/game/guest/register', {
+ *         method: 'POST',
+ *         body: JSON.stringify({ guestName: 'Player1' })
+ *       });
+ *       const { guestId } = await response.json();
+ *
+ *       // Step 2: Connect socket
+ *       const socket = io('wss://tomatowithchilli.duckdns.org', {
+ *         auth: { guestId }
+ *       });
+ *
+ *       // Step 3: Join matchmaking (after socket connects)
+ *       socket.on('connect', () => {
+ *         fetch('/api/game/matchmaking/join-guest', {
+ *           method: 'POST',
+ *           body: JSON.stringify({
+ *             guestId,
+ *             socketId: socket.id,
+ *             guestName: 'Player1'
+ *           })
+ *         });
+ *       });
+ *       ```
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - guestName
+ *             properties:
+ *               guestName:
+ *                 type: string
+ *                 minLength: 2
+ *                 example: 'GuestPlayer123'
+ *     responses:
+ *       200:
+ *         description: Guest ID generated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 guestId:
+ *                   type: string
+ *                   example: 'guest_1234567890_abc123'
+ *       400:
+ *         description: Invalid guest name
+ */
+router.post('/guest/register', registerGuest);
 
 /**
  * @swagger
@@ -359,9 +432,19 @@ router.post('/:gameId/move', authenticateToken, makeMove);
  *     tags:
  *       - Games
  *     summary: Resign from game
- *     description: Resign from the specified game
- *     security:
- *       - BearerAuth: []
+ *     description: |
+ *       Resign from the specified game. Works for both authenticated and guest users.
+ *
+ *       **For authenticated users:** Include JWT token in Authorization header
+ *       **For guest users:** Include guestId in request body
+ *
+ *       **Example (Guest):**
+ *       ```javascript
+ *       fetch('/api/game/{gameId}/resign', {
+ *         method: 'POST',
+ *         body: JSON.stringify({ guestId: 'guest_123...' })
+ *       });
+ *       ```
  *     parameters:
  *       - in: path
  *         name: gameId
@@ -369,6 +452,16 @@ router.post('/:gameId/move', authenticateToken, makeMove);
  *         schema:
  *           type: string
  *         description: The game ID
+ *     requestBody:
+ *       description: Required for guest users
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               guestId:
+ *                 type: string
+ *                 example: 'guest_1234567890_abc123'
  *     responses:
  *       200:
  *         description: Game resigned successfully
@@ -384,7 +477,7 @@ router.post('/:gameId/move', authenticateToken, makeMove);
  *       400:
  *         description: Cannot resign from this game
  *       401:
- *         description: Unauthorized
+ *         description: Unauthorized - userId or guestId required
  *       404:
  *         description: Game not found
  */

@@ -32,7 +32,8 @@ export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<
   }
 };
 
-export const joinGuestMatchmaking = async (req: Request, res: Response): Promise<void> => {
+// Step 1: Register guest and get ID (no matchmaking yet)
+export const registerGuest = async (req: Request, res: Response): Promise<void> => {
   try {
     const { guestName } = req.body;
 
@@ -41,7 +42,50 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
       return;
     }
 
+    // Generate unique guest ID
     const guestId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Return guest ID without joining matchmaking
+    res.json({ guestId });
+  } catch (error) {
+    console.error('Error registering guest:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+// Step 2: Join matchmaking with verified socket
+export const joinGuestMatchmaking = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { guestId, socketId } = req.body;
+
+    if (!guestId || !guestId.startsWith('guest_')) {
+      res.status(400).json({ message: 'Valid guest ID is required' });
+      return;
+    }
+
+    if (!socketId) {
+      res.status(400).json({ message: 'Socket ID is required' });
+      return;
+    }
+
+    // Verify socket exists - import io from socket service
+    const { gameSocketService } = require('../sockets/index');
+    const socketExists = gameSocketService.getPlayerSocketId(guestId) === socketId;
+
+    if (!socketExists) {
+      res.status(400).json({
+        message: 'Socket not connected. Please ensure you are connected to the game server.'
+      });
+      return;
+    }
+
+    // Extract guest name from guestId or require it in the request
+    const { guestName } = req.body;
+    if (!guestName || guestName.trim().length < 2) {
+      res.status(400).json({ message: 'Guest name must be at least 2 characters' });
+      return;
+    }
+
     const matchmakingRequest: MatchmakingRequest = {
       userId: guestId,
       username: guestName.trim(),
@@ -51,7 +95,7 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
     };
 
     const result = await matchmakingService.joinMatchmaking(matchmakingRequest);
-    res.json({ ...result, guestId });
+    res.json(result);
   } catch (error) {
     console.error('Error joining guest matchmaking:', error);
     res.status(500).json({ message: 'Internal server error' });
