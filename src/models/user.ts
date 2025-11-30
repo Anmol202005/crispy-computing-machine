@@ -5,6 +5,7 @@ export interface IUser extends Document {
   email: string;
   password: string;
   elo: number;
+  avatar: string;
   createdAt: Date;
   isVerified: boolean;
 }
@@ -44,6 +45,10 @@ const userSchema = new Schema<IUser>({
   elo: {
     type: Number,
     default: 300,
+  },
+  avatar: {
+    type: String,
+    default: 'avatar1.svg',
   },
   createdAt: {
     type: Date,

@@ -3,6 +3,7 @@ import { gameService } from '../services/game.service';
 import { matchmakingService } from '../services/matchmaking.service';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user';
+import { Game } from '../models/game.models';
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -118,7 +119,7 @@ class GameSocketService {
             return;
           }
 
-          io.to(data.gameId).emit('move-made', {
+          socket.to(data.gameId).emit('move-made', {
             move: data.move,
             gameState: result.gameState,
             player: socket.user?.username || socket.guestId
@@ -199,6 +200,66 @@ class GameSocketService {
         });
       });
 
+      // Draw offer handlers
+      socket.on('draw-offer', (data: { gameId: string; from: string }) => {
+        const { gameId, from } = data;
+        console.log('Draw offer from:', from, 'in game:', gameId);
+
+        // Send to other players in the game room
+        socket.to(gameId).emit('draw-offer', {
+          from,
+          timestamp: new Date()
+        });
+      });
+
+      socket.on('draw-accept', async (data: { gameId: string }) => {
+        const { gameId } = data;
+        console.log('Draw accepted in game:', gameId);
+
+        try {
+          // Update game in database to mark as draw
+          const game = await Game.findById(gameId);
+          if (game) {
+            game.status = 'completed' as any;
+            game.result = 'draw' as any;
+            await game.save();
+          }
+
+          // Notify all players in the game room
+          io.to(gameId).emit('draw-accept', {
+            timestamp: new Date()
+          });
+
+          // End the game as a draw
+          io.to(gameId).emit('game-over', {
+            type: 'draw',
+            message: 'Game ended in a draw by agreement',
+            timestamp: new Date()
+          });
+        } catch (error) {
+          console.error('Error accepting draw:', error);
+        }
+      });
+
+      socket.on('draw-decline', (data: { gameId: string }) => {
+        const { gameId } = data;
+        console.log('Draw declined in game:', gameId);
+
+        // Notify all players in the game room
+        io.to(gameId).emit('draw-decline', {
+          timestamp: new Date()
+        });
+      });
+
+      socket.on('draw-cancel', (data: { gameId: string }) => {
+        const { gameId } = data;
+        console.log('Draw offer canceled in game:', gameId);
+
+        // Notify all players in the game room
+        socket.to(gameId).emit('draw-cancel', {
+          timestamp: new Date()
+        });
+      });
 
       socket.on('disconnect', () => {
         console.log('User disconnected:', socket.user?.username || socket.guestId);

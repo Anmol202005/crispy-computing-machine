@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { authenticateToken } from '../middleware/auth';
+import { authenticateToken, optionalAuth } from '../middleware/auth';
 import {
   joinMatchmaking,
   registerGuest,
@@ -481,6 +481,8 @@ router.post('/:gameId/move', authenticateToken, makeMove);
  *       404:
  *         description: Game not found
  */
-router.post('/:gameId/resign', authenticateToken, resignGame);
+// Resign endpoint - supports both authenticated users and guests
+// Uses optional auth: populates req.user if token provided, allows guests otherwise
+router.post('/:gameId/resign', optionalAuth, resignGame);
 
 export default router;

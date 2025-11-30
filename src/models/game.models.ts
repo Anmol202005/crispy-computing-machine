@@ -21,6 +21,8 @@ export interface IGame extends Document{
     blackPlayerId: string,
     whitePlayerName: string,
     blackPlayerName: string,
+    whitePlayerAvatar: string,
+    blackPlayerAvatar: string,
     currentTurn: Color,
     status: Status,
     fen: string,
@@ -50,6 +52,14 @@ const gameSchema = new Schema<IGame>({
   blackPlayerName: {
     type: String,
     required: false,
+  },
+  whitePlayerAvatar: {
+    type: String,
+    default: 'avatar1.svg',
+  },
+  blackPlayerAvatar: {
+    type: String,
+    default: 'avatar1.svg',
   },
   currentTurn: {
     type: String,

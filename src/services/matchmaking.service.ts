@@ -7,6 +7,7 @@ export interface MatchmakingRequest {
   userId: string;
   username: string;
   elo: number;
+  avatar?: string;
   isGuest?: boolean;
   guestName?: string;
 }
@@ -87,6 +88,8 @@ class MatchmakingService {
       blackPlayerName: isPlayer1White ?
         (player2.isGuest ? player2.guestName : player2.username) :
         (player1.isGuest ? player1.guestName : player1.username),
+      whitePlayerAvatar: (isPlayer1White ? player1.avatar : player2.avatar) || 'avatar1.svg',
+      blackPlayerAvatar: (isPlayer1White ? player2.avatar : player1.avatar) || 'avatar1.svg',
       status: 'active' as any,
       isGuestGame: player1.isGuest || player2.isGuest
     };
@@ -127,6 +130,7 @@ class MatchmakingService {
         opponent: {
           userId: player2.userId,
           username: player2.isGuest ? player2.guestName : player2.username,
+          avatar: player2.avatar || 'avatar1.svg',
           isGuest: player2.isGuest || false
         }
       };
@@ -140,6 +144,7 @@ class MatchmakingService {
         opponent: {
           userId: player1.userId,
           username: player1.isGuest ? player1.guestName : player1.username,
+          avatar: player1.avatar || 'avatar1.svg',
           isGuest: player1.isGuest || false
         }
       };

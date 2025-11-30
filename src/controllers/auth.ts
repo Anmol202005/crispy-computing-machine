@@ -33,10 +33,16 @@ export const registerUser = async(
         if(await User.findOne({ username, isVerified: false})){
             await User.deleteOne({ username, isVerified: false});
         }
+
+        // Assign random avatar from avatar1.svg to avatar8.svg
+        const randomAvatarNumber = Math.floor(Math.random() * 8) + 1;
+        const randomAvatar = `avatar${randomAvatarNumber}.svg`;
+
         const newUser = await User.create({
           username,
           email,
           password: hashedPassword,
+          avatar: randomAvatar,
           isVerified: false,
         });
 
@@ -159,6 +165,7 @@ export const login = async (req: Request, res: Response) => {
         username: user.username,
         email: user.email,
         elo: user.elo,
+        avatar: user.avatar,
       },
     });
   } catch (error: any) {
@@ -211,6 +218,7 @@ export const otpVerification = async (req: Request, res: Response) =>{
             username: user!.username,
             email: user!.email,
             elo: user!.elo,
+            avatar: user!.avatar,
           },
         });
     }
@@ -243,6 +251,7 @@ export const forgotPasswordOtpVerification = async (req: Request, res: Response)
             username: user.username,
             email: user.email,
             elo: user.elo,
+            avatar: user.avatar,
           },
         });
     }

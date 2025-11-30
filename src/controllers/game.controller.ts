@@ -21,7 +21,8 @@ export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<
     const matchmakingRequest: MatchmakingRequest = {
       userId,
       username: user.username,
-      elo: user.elo
+      elo: user.elo,
+      avatar: user.avatar
     };
 
     const result = await matchmakingService.joinMatchmaking(matchmakingRequest);
@@ -35,7 +36,7 @@ export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<
 // Step 1: Register guest and get ID (no matchmaking yet)
 export const registerGuest = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { guestName } = req.body;
+    const { guestName, avatar } = req.body;
 
     if (!guestName || guestName.trim().length < 2) {
       res.status(400).json({ message: 'Guest name must be at least 2 characters' });
@@ -46,7 +47,7 @@ export const registerGuest = async (req: Request, res: Response): Promise<void> 
     const guestId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Return guest ID without joining matchmaking
-    res.json({ guestId });
+    res.json({ guestId, avatar: avatar || 'avatar1.svg' });
   } catch (error) {
     console.error('Error registering guest:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -80,7 +81,7 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
     }
 
     // Extract guest name from guestId or require it in the request
-    const { guestName } = req.body;
+    const { guestName, avatar } = req.body;
     if (!guestName || guestName.trim().length < 2) {
       res.status(400).json({ message: 'Guest name must be at least 2 characters' });
       return;
@@ -90,6 +91,7 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
       userId: guestId,
       username: guestName.trim(),
       elo: 800, // Default rating for guests
+      avatar: avatar || 'avatar1.svg',
       isGuest: true,
       guestName: guestName.trim()
     };
@@ -169,13 +171,17 @@ export const resignGame = async (req: AuthRequest, res: Response): Promise<void>
   try {
     const { gameId } = req.params;
     const userId = req.user?.userId;
+    const guestId = req.body?.guestId; // Support guest resignations
 
-    if (!userId) {
-      res.status(401).json({ message: 'Unauthorized' });
+    // Support both authenticated users and guests
+    const playerId = userId || guestId;
+
+    if (!playerId) {
+      res.status(401).json({ message: 'Unauthorized - no user ID or guest ID provided' });
       return;
     }
 
-    const result = await gameService.resignGame(gameId, userId);
+    const result = await gameService.resignGame(gameId, playerId);
 
     if (!result.success) {
       res.status(400).json({ message: result.error });

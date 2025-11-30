@@ -24,3 +24,29 @@ export const authenticateToken = (
     }
 };
 
+// Optional authentication - populates req.user if token provided, but doesn't reject if missing
+export const optionalAuth = (
+    req: AuthRequest,
+    res: Response,
+    next: NextFunction
+) => {
+    const header = req.header('authorization');
+    const token = header && header.split(" ")[1];
+
+    // No token - continue without authentication (guest user)
+    if (!token) {
+        return next();
+    }
+
+    // Token provided - try to verify it
+    try {
+        const decode = jwt.verify(token, process.env.JWT_SECRET!) as JwtPayload;
+        req.user = decode;
+        next();
+    } catch (error) {
+        // Invalid token - treat as guest
+        console.log('Invalid token in optionalAuth, treating as guest');
+        next();
+    }
+};
+
