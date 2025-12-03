@@ -71,6 +71,10 @@ const userSchema = new mongoose_1.Schema({
         type: Number,
         default: 300,
     },
+    avatar: {
+        type: String,
+        default: 'avatar1.svg',
+    },
     createdAt: {
         type: Date,
         default: Date.now

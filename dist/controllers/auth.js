@@ -29,10 +29,14 @@ const registerUser = async (req, res) => {
         if (await user_1.User.findOne({ username, isVerified: false })) {
             await user_1.User.deleteOne({ username, isVerified: false });
         }
+        // Assign random avatar from avatar1.svg to avatar8.svg
+        const randomAvatarNumber = Math.floor(Math.random() * 8) + 1;
+        const randomAvatar = `avatar${randomAvatarNumber}.svg`;
         const newUser = await user_1.User.create({
             username,
             email,
             password: hashedPassword,
+            avatar: randomAvatar,
             isVerified: false,
         });
         try {
@@ -141,6 +145,7 @@ const login = async (req, res) => {
                 username: user.username,
                 email: user.email,
                 elo: user.elo,
+                avatar: user.avatar,
             },
         });
     }
@@ -184,6 +189,7 @@ const otpVerification = async (req, res) => {
                 username: user.username,
                 email: user.email,
                 elo: user.elo,
+                avatar: user.avatar,
             },
         });
     }
@@ -208,6 +214,7 @@ const forgotPasswordOtpVerification = async (req, res) => {
                 username: user.username,
                 email: user.email,
                 elo: user.elo,
+                avatar: user.avatar,
             },
         });
     }

@@ -31,7 +31,8 @@ export interface IGame extends Document{
     winner: string,
     createdAt: Date,
     updatedAt:Date,
-    isGuestGame: boolean
+    isGuestGame: boolean,
+    timeControl: string
 }
 const gameSchema = new Schema<IGame>({
 
@@ -93,6 +94,10 @@ const gameSchema = new Schema<IGame>({
   isGuestGame: {
     type: Boolean,
     default: false,
+  },
+  timeControl: {
+    type: String,
+    required: false,
   },
   createdAt: {
     type: Date,

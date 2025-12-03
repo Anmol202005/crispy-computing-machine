@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getMatchmakingStatus = exports.getPlayerGames = exports.resignGame = exports.makeMove = exports.getGame = exports.leaveMatchmaking = exports.joinGuestMatchmaking = exports.joinMatchmaking = void 0;
+exports.getMatchmakingStatus = exports.getPlayerGames = exports.resignGame = exports.makeMove = exports.getGame = exports.leaveMatchmaking = exports.joinGuestMatchmaking = exports.registerGuest = exports.joinMatchmaking = void 0;
 const matchmaking_service_1 = require("../services/matchmaking.service");
 const game_service_1 = require("../services/game.service");
 const user_1 = require("../models/user");
@@ -12,6 +12,11 @@ const joinMatchmaking = async (req, res) => {
             res.status(401).json({ message: 'Unauthorized' });
             return;
         }
+        const { timeControl } = req.body;
+        if (!timeControl) {
+            res.status(400).json({ message: 'Time control is required' });
+            return;
+        }
         const user = await user_1.User.findById(userId);
         if (!user) {
             res.status(404).json({ message: 'User not found' });
@@ -20,7 +25,9 @@ const joinMatchmaking = async (req, res) => {
         const matchmakingRequest = {
             userId,
             username: user.username,
-            elo: user.elo
+            elo: user.elo,
+            avatar: user.avatar,
+            timeControl
         };
         const result = await matchmaking_service_1.matchmakingService.joinMatchmaking(matchmakingRequest);
         res.json(result);
@@ -31,23 +38,67 @@ const joinMatchmaking = async (req, res) => {
     }
 };
 exports.joinMatchmaking = joinMatchmaking;
-const joinGuestMatchmaking = async (req, res) => {
+// Step 1: Register guest and get ID (no matchmaking yet)
+const registerGuest = async (req, res) => {
     try {
-        const { guestName } = req.body;
+        const { guestName, avatar } = req.body;
         if (!guestName || guestName.trim().length < 2) {
             res.status(400).json({ message: 'Guest name must be at least 2 characters' });
             return;
         }
+        // Generate unique guest ID
         const guestId = `guest_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // Return guest ID without joining matchmaking
+        res.json({ guestId, avatar: avatar || 'avatar1.svg' });
+    }
+    catch (error) {
+        console.error('Error registering guest:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+exports.registerGuest = registerGuest;
+// Step 2: Join matchmaking with verified socket
+const joinGuestMatchmaking = async (req, res) => {
+    try {
+        const { guestId, socketId, timeControl } = req.body;
+        if (!guestId || !guestId.startsWith('guest_')) {
+            res.status(400).json({ message: 'Valid guest ID is required' });
+            return;
+        }
+        if (!socketId) {
+            res.status(400).json({ message: 'Socket ID is required' });
+            return;
+        }
+        if (!timeControl) {
+            res.status(400).json({ message: 'Time control is required' });
+            return;
+        }
+        // Verify socket exists - import io from socket service
+        const { gameSocketService } = require('../sockets/index');
+        const socketExists = gameSocketService.getPlayerSocketId(guestId) === socketId;
+        if (!socketExists) {
+            res.status(400).json({
+                message: 'Socket not connected. Please ensure you are connected to the game server.'
+            });
+            return;
+        }
+        // Extract guest name from guestId or require it in the request
+        const { guestName, avatar } = req.body;
+        if (!guestName || guestName.trim().length < 2) {
+            res.status(400).json({ message: 'Guest name must be at least 2 characters' });
+            return;
+        }
         const matchmakingRequest = {
             userId: guestId,
             username: guestName.trim(),
-            elo: 800, // Default rating for guests
+            elo: 300, // Default rating for guests (matches auth users)
+            avatar: avatar || 'avatar1.svg',
             isGuest: true,
-            guestName: guestName.trim()
+            guestName: guestName.trim(),
+            timeControl
         };
         const result = await matchmaking_service_1.matchmakingService.joinMatchmaking(matchmakingRequest);
-        res.json(Object.assign(Object.assign({}, result), { guestId }));
+        res.json(result);
     }
     catch (error) {
         console.error('Error joining guest matchmaking:', error);
@@ -116,15 +167,18 @@ const makeMove = async (req, res) => {
 };
 exports.makeMove = makeMove;
 const resignGame = async (req, res) => {
-    var _a;
+    var _a, _b;
     try {
         const { gameId } = req.params;
         const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.userId;
-        if (!userId) {
-            res.status(401).json({ message: 'Unauthorized' });
+        const guestId = (_b = req.body) === null || _b === void 0 ? void 0 : _b.guestId; // Support guest resignations
+        // Support both authenticated users and guests
+        const playerId = userId || guestId;
+        if (!playerId) {
+            res.status(401).json({ message: 'Unauthorized - no user ID or guest ID provided' });
             return;
         }
-        const result = await game_service_1.gameService.resignGame(gameId, userId);
+        const result = await game_service_1.gameService.resignGame(gameId, playerId);
         if (!result.success) {
             res.status(400).json({ message: result.error });
             return;

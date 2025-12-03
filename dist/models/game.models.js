@@ -70,6 +70,14 @@ const gameSchema = new mongoose_1.Schema({
         type: String,
         required: false,
     },
+    whitePlayerAvatar: {
+        type: String,
+        default: 'avatar1.svg',
+    },
+    blackPlayerAvatar: {
+        type: String,
+        default: 'avatar1.svg',
+    },
     currentTurn: {
         type: String,
         enum: Object.values(Color),
@@ -102,6 +110,10 @@ const gameSchema = new mongoose_1.Schema({
     isGuestGame: {
         type: Boolean,
         default: false,
+    },
+    timeControl: {
+        type: String,
+        required: false,
     },
     createdAt: {
         type: Date,

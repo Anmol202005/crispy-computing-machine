@@ -12,6 +12,12 @@ export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<
       return;
     }
 
+    const { timeControl } = req.body;
+    if (!timeControl) {
+      res.status(400).json({ message: 'Time control is required' });
+      return;
+    }
+
     const user = await User.findById(userId);
     if (!user) {
       res.status(404).json({ message: 'User not found' });
@@ -22,7 +28,8 @@ export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<
       userId,
       username: user.username,
       elo: user.elo,
-      avatar: user.avatar
+      avatar: user.avatar,
+      timeControl
     };
 
     const result = await matchmakingService.joinMatchmaking(matchmakingRequest);
@@ -57,7 +64,7 @@ export const registerGuest = async (req: Request, res: Response): Promise<void> 
 // Step 2: Join matchmaking with verified socket
 export const joinGuestMatchmaking = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { guestId, socketId } = req.body;
+    const { guestId, socketId, timeControl } = req.body;
 
     if (!guestId || !guestId.startsWith('guest_')) {
       res.status(400).json({ message: 'Valid guest ID is required' });
@@ -66,6 +73,11 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
 
     if (!socketId) {
       res.status(400).json({ message: 'Socket ID is required' });
+      return;
+    }
+
+    if (!timeControl) {
+      res.status(400).json({ message: 'Time control is required' });
       return;
     }
 
@@ -90,10 +102,11 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
     const matchmakingRequest: MatchmakingRequest = {
       userId: guestId,
       username: guestName.trim(),
-      elo: 800, // Default rating for guests
+      elo: 300, // Default rating for guests (matches auth users)
       avatar: avatar || 'avatar1.svg',
       isGuest: true,
-      guestName: guestName.trim()
+      guestName: guestName.trim(),
+      timeControl
     };
 
     const result = await matchmakingService.joinMatchmaking(matchmakingRequest);

@@ -10,12 +10,13 @@ export interface MatchmakingRequest {
   avatar?: string;
   isGuest?: boolean;
   guestName?: string;
+  timeControl: string;
 }
 
 class MatchmakingService {
   private waitingPlayers: Map<string, MatchmakingRequest> = new Map();
-  private readonly ELO_RANGE_BASE = 100;
-  private readonly ELO_RANGE_INCREMENT = 50;
+  private readonly ELO_RANGE_BASE = 200; // Increased from 100 to allow more flexible matching
+  private readonly ELO_RANGE_INCREMENT = 100; // Increased from 50
   private readonly MAX_WAIT_TIME = 30000; // 30 seconds
   private io: Server | null = null;
 
@@ -57,6 +58,9 @@ class MatchmakingService {
     for (const [waitingUserId, waitingPlayer] of this.waitingPlayers) {
       if (waitingUserId === request.userId) continue;
 
+      // Only match players with the same time control
+      if (waitingPlayer.timeControl !== request.timeControl) continue;
+
       const ratingDiff = Math.abs(request.elo - waitingPlayer.elo);
       const waitTime = Date.now() - (waitingPlayer as any).timestamp;
 
@@ -91,7 +95,8 @@ class MatchmakingService {
       whitePlayerAvatar: (isPlayer1White ? player1.avatar : player2.avatar) || 'avatar1.svg',
       blackPlayerAvatar: (isPlayer1White ? player2.avatar : player1.avatar) || 'avatar1.svg',
       status: 'active' as any,
-      isGuestGame: player1.isGuest || player2.isGuest
+      isGuestGame: player1.isGuest || player2.isGuest,
+      timeControl: player1.timeControl
     };
 
     const game = new Game(gameData);
