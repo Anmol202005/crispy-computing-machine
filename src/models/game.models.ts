@@ -1,38 +1,46 @@
 import mongoose, { Document, Schema } from "mongoose";
 
-enum Color{
-    WHITE='white',
-    BLACK='black',
+export enum Color {
+  WHITE = 'white',
+  BLACK = 'black',
 }
 
-enum Status{
-    ACTIVE='active',
-    COMPLETED='completed'
+export enum Status {
+  ACTIVE = 'active',
+  COMPLETED = 'completed',
 }
 
-enum Result{
-    BLACK_WINS = 'black_wins',
-    WHITE_WINS = 'white_wins',
-    DRAW = 'draw'
+export enum Result {
+  BLACK_WINS = 'black_wins',
+  WHITE_WINS = 'white_wins',
+  DRAW = 'draw',
 }
 
-export interface IGame extends Document{
-    whitePlayerId: string,
-    blackPlayerId: string,
-    whitePlayerName: string,
-    blackPlayerName: string,
-    whitePlayerAvatar: string,
-    blackPlayerAvatar: string,
-    currentTurn: Color,
-    status: Status,
-    fen: string,
-    moves: string[],
-    result:Result,
-    winner: string,
-    createdAt: Date,
-    updatedAt:Date,
-    isGuestGame: boolean,
-    timeControl: string
+export interface IGame extends Document {
+  id: string;
+  _id: mongoose.Types.ObjectId;
+  whitePlayerId: string,
+  blackPlayerId: string,
+  whitePlayerName: string,
+  blackPlayerName: string,
+  whitePlayerAvatar: string,
+  blackPlayerAvatar: string,
+  currentTurn: Color,
+  status: Status,
+  fen: string,
+  moves: string[],
+  result?: Result | null;
+  winner?: string | null;
+  createdAt: Date,
+  updatedAt:Date,
+  isGuestGame: boolean,
+  timeControl: string
+  initialTimeSeconds?: number;
+  incrementSeconds?: number;
+  whiteTimeRemaining?: number;
+  blackTimeRemaining?: number;
+  lastMoveAt?: Date;
+  clockStarted?: boolean;
 }
 const gameSchema = new Schema<IGame>({
 
@@ -71,6 +79,7 @@ const gameSchema = new Schema<IGame>({
   status: {
     type: String,
     enum: Object.values(Status),
+    default: Status.ACTIVE,
     required: true,
   },
   fen: {
@@ -85,11 +94,11 @@ const gameSchema = new Schema<IGame>({
   result: {
     type: String,
     enum: Object.values(Result),
-    required: false,
+    default: null,
   },
   winner: {
     type: String,
-    required: false,
+    default: null,
   },
   isGuestGame: {
     type: Boolean,
@@ -98,6 +107,30 @@ const gameSchema = new Schema<IGame>({
   timeControl: {
     type: String,
     required: false,
+  },
+  initialTimeSeconds: {
+    type: Number,
+    default: 600,
+  },
+  incrementSeconds: {
+    type: Number,
+    default: 0,
+  },
+  whiteTimeRemaining: {
+    type: Number,
+    default: 600,
+  },
+  blackTimeRemaining: {
+    type: Number,
+    default: 600,
+  },
+  lastMoveAt: {
+    type: Date,
+    default: null,
+  },
+  clockStarted: {
+    type: Boolean,
+    default: false,
   },
   createdAt: {
     type: Date,

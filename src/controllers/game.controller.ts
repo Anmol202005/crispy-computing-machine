@@ -1,8 +1,10 @@
 import { Request, Response } from 'express';
 import { matchmakingService, MatchmakingRequest } from '../services/matchmaking.service';
-import { gameService } from '../services/game.service';
+import { gameService, GameCompletionPayload } from '../services/game.service';
 import { User } from '../models/user';
 import { AuthRequest } from '../types/jwtRequest';
+import { normalizeTimeControl } from '../utils/timeControlUtils';
+import { gameSocketService } from '../sockets';
 
 export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -13,10 +15,7 @@ export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<
     }
 
     const { timeControl } = req.body;
-    if (!timeControl) {
-      res.status(400).json({ message: 'Time control is required' });
-      return;
-    }
+    const normalizedTimeControl = normalizeTimeControl(timeControl ?? '10 min');
 
     const user = await User.findById(userId);
     if (!user) {
@@ -29,7 +28,7 @@ export const joinMatchmaking = async (req: AuthRequest, res: Response): Promise<
       username: user.username,
       elo: user.elo,
       avatar: user.avatar,
-      timeControl
+      timeControl: normalizedTimeControl
     };
 
     const result = await matchmakingService.joinMatchmaking(matchmakingRequest);
@@ -76,13 +75,6 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
       return;
     }
 
-    if (!timeControl) {
-      res.status(400).json({ message: 'Time control is required' });
-      return;
-    }
-
-    // Verify socket exists - import io from socket service
-    const { gameSocketService } = require('../sockets/index');
     const socketExists = gameSocketService.getPlayerSocketId(guestId) === socketId;
 
     if (!socketExists) {
@@ -92,21 +84,22 @@ export const joinGuestMatchmaking = async (req: Request, res: Response): Promise
       return;
     }
 
-    // Extract guest name from guestId or require it in the request
     const { guestName, avatar } = req.body;
     if (!guestName || guestName.trim().length < 2) {
       res.status(400).json({ message: 'Guest name must be at least 2 characters' });
       return;
     }
 
+    const normalizedTimeControl = normalizeTimeControl(timeControl ?? '10 min');
+
     const matchmakingRequest: MatchmakingRequest = {
       userId: guestId,
       username: guestName.trim(),
-      elo: 300, // Default rating for guests (matches auth users)
+      elo: 300,
       avatar: avatar || 'avatar1.svg',
       isGuest: true,
       guestName: guestName.trim(),
-      timeControl
+      timeControl: normalizedTimeControl
     };
 
     const result = await matchmakingService.joinMatchmaking(matchmakingRequest);
@@ -150,6 +143,15 @@ export const getGame = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+const broadcastGameCompletion = (completion?: GameCompletionPayload): void => {
+  if (!completion) return;
+  try {
+    gameSocketService.publishGameCompletion(completion);
+  } catch (error) {
+    console.error('Error broadcasting game completion:', error);
+  }
+};
+
 export const makeMove = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { gameId } = req.params;
@@ -168,12 +170,17 @@ export const makeMove = async (req: AuthRequest, res: Response): Promise<void> =
 
     const result = await gameService.makeMove({ gameId, userId, move });
 
-    if (!result.success) {
-      res.status(400).json({ message: result.error });
+    if (!result.success || !result.gameState) {
+      res.status(result.error === 'Game not found' ? 404 : 400).json({ message: result.error });
       return;
     }
 
-    res.json(result.gameState);
+    broadcastGameCompletion(result.completion);
+
+    res.json({
+      ...result.gameState,
+      completion: result.completion ?? null
+    });
   } catch (error) {
     console.error('Error making move:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -184,9 +191,7 @@ export const resignGame = async (req: AuthRequest, res: Response): Promise<void>
   try {
     const { gameId } = req.params;
     const userId = req.user?.userId;
-    const guestId = req.body?.guestId; // Support guest resignations
-
-    // Support both authenticated users and guests
+    const guestId = req.body?.guestId;
     const playerId = userId || guestId;
 
     if (!playerId) {
@@ -196,12 +201,18 @@ export const resignGame = async (req: AuthRequest, res: Response): Promise<void>
 
     const result = await gameService.resignGame(gameId, playerId);
 
-    if (!result.success) {
+    if (!result.success || !result.game) {
       res.status(400).json({ message: result.error });
       return;
     }
 
-    res.json({ message: 'Game resigned successfully', game: result.game });
+    broadcastGameCompletion(result.completion);
+
+    res.json({
+      message: 'Game resigned successfully',
+      game: result.game,
+      completion: result.completion ?? null
+    });
   } catch (error) {
     console.error('Error resigning game:', error);
     res.status(500).json({ message: 'Internal server error' });
@@ -241,5 +252,41 @@ export const getMatchmakingStatus = async (req: AuthRequest, res: Response): Pro
   } catch (error) {
     console.error('Error getting matchmaking status:', error);
     res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const getPlayerGamesSummary = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const games = await gameService.getPlayerGamesSummary(userId);
+    res.json({ games });
+  } catch (error) {
+    console.error('Error getting game summaries:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const getPerformanceByFormat = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+
+    const performance = await gameService.getPerformanceByFormat(userId);
+    res.json(performance);
+  } catch (error) {
+    console.error('Error getting performance by format:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    res.status(500).json({ 
+      message: 'Failed to fetch performance data',
+      error: errorMessage 
+    });
   }
 };

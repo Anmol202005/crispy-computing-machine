@@ -1,7 +1,8 @@
-import { Game, IGame } from '../models/game.models';
+import { Game, IGame, Status } from '../models/game.models';
 import { User, IUser } from '../models/user';
 import { Server } from 'socket.io';
-import { gameSocketService } from '../sockets/index';
+import { gameSocketService } from '../sockets';
+import { parseTimeControl } from '../utils/timeControlUtils';
 
 export interface MatchmakingRequest {
   userId: string;
@@ -13,8 +14,10 @@ export interface MatchmakingRequest {
   timeControl: string;
 }
 
+type WaitingPlayer = MatchmakingRequest & { timestamp: number };
+
 class MatchmakingService {
-  private waitingPlayers: Map<string, MatchmakingRequest> = new Map();
+  private waitingPlayers: Map<string, WaitingPlayer> = new Map();
   private readonly ELO_RANGE_BASE = 200; // Increased from 100 to allow more flexible matching
   private readonly ELO_RANGE_INCREMENT = 100; // Increased from 50
   private readonly MAX_WAIT_TIME = 30000; // 30 seconds
@@ -32,7 +35,6 @@ class MatchmakingService {
       const game = await this.createGame(request, opponent);
       const gameId = (game._id as any).toString();
 
-      // Notify both players via WebSocket
       this.notifyMatchFound(request, opponent, gameId);
 
       return { gameId };
@@ -62,7 +64,7 @@ class MatchmakingService {
       if (waitingPlayer.timeControl !== request.timeControl) continue;
 
       const ratingDiff = Math.abs(request.elo - waitingPlayer.elo);
-      const waitTime = Date.now() - (waitingPlayer as any).timestamp;
+      const waitTime = Date.now() - waitingPlayer.timestamp;
 
       const maxAllowedDiff = this.calculateMaxEloRange(waitTime);
 
@@ -82,6 +84,7 @@ class MatchmakingService {
 
   private async createGame(player1: MatchmakingRequest, player2: MatchmakingRequest): Promise<IGame> {
     const isPlayer1White = Math.random() < 0.5;
+    const { baseSeconds, incrementSeconds } = parseTimeControl(player1.timeControl);
 
     const gameData = {
       whitePlayerId: isPlayer1White ? player1.userId : player2.userId,
@@ -94,10 +97,18 @@ class MatchmakingService {
         (player1.isGuest ? player1.guestName : player1.username),
       whitePlayerAvatar: (isPlayer1White ? player1.avatar : player2.avatar) || 'avatar1.svg',
       blackPlayerAvatar: (isPlayer1White ? player2.avatar : player1.avatar) || 'avatar1.svg',
-      status: 'active' as any,
+      status: Status.ACTIVE,
       isGuestGame: player1.isGuest || player2.isGuest,
-      timeControl: player1.timeControl
+      timeControl: player1.timeControl,
+      initialTimeSeconds: baseSeconds,
+      incrementSeconds,
+      whiteTimeRemaining: baseSeconds,
+      blackTimeRemaining: baseSeconds,
+      lastMoveAt: null,
+      clockStarted: false,
     };
+
+    console.debug('Creating game with timeControl:', player1.timeControl);
 
     const game = new Game(gameData);
     await game.save();
@@ -107,8 +118,9 @@ class MatchmakingService {
   private scheduleTimeoutCleanup(userId: string): void {
     setTimeout(() => {
       const player = this.waitingPlayers.get(userId);
-      if (player && Date.now() - (player as any).timestamp >= this.MAX_WAIT_TIME) {
+      if (player && Date.now() - player.timestamp >= this.MAX_WAIT_TIME) {
         this.waitingPlayers.delete(userId);
+        console.debug(`[matchmaking] Removed ${userId} from queue after timeout.`);
       }
     }, this.MAX_WAIT_TIME);
   }
@@ -122,42 +134,64 @@ class MatchmakingService {
   }
 
   private notifyMatchFound(player1: MatchmakingRequest, player2: MatchmakingRequest, gameId: string): void {
-    if (!this.io) return;
+    const opponentForPlayer1 = {
+      userId: player2.userId,
+      username: player2.isGuest ? player2.guestName : player2.username,
+      avatar: player2.avatar || 'avatar1.svg',
+      isGuest: player2.isGuest || false,
+      elo: player2.elo
+    };
 
-    // Get socket IDs for both players
+    const opponentForPlayer2 = {
+      userId: player1.userId,
+      username: player1.isGuest ? player1.guestName : player1.username,
+      avatar: player1.avatar || 'avatar1.svg',
+      isGuest: player1.isGuest || false,
+      elo: player1.elo
+    };
+
     const player1SocketId = gameSocketService.getPlayerSocketId(player1.userId);
     const player2SocketId = gameSocketService.getPlayerSocketId(player2.userId);
 
-    // Notify player1 about the match with player2 as opponent
-    if (player1SocketId) {
-      const player1Data = {
-        gameId,
-        opponent: {
-          userId: player2.userId,
-          username: player2.isGuest ? player2.guestName : player2.username,
-          avatar: player2.avatar || 'avatar1.svg',
-          isGuest: player2.isGuest || false
-        }
-      };
-      this.io.to(player1SocketId).emit('matchmaking-found', player1Data);
+    if (!player1SocketId) {
+      console.warn(`[matchmaking] Missing socket for ${player1.userId} while notifying match.`);
+    }
+    if (!player2SocketId) {
+      console.warn(`[matchmaking] Missing socket for ${player2.userId} while notifying match.`);
     }
 
-    // Notify player2 about the match with player1 as opponent
-    if (player2SocketId) {
-      const player2Data = {
-        gameId,
-        opponent: {
-          userId: player1.userId,
-          username: player1.isGuest ? player1.guestName : player1.username,
-          avatar: player1.avatar || 'avatar1.svg',
-          isGuest: player1.isGuest || false
-        }
-      };
-      this.io.to(player2SocketId).emit('matchmaking-found', player2Data);
+    gameSocketService.emitToSocket(player1SocketId, 'matchmaking-found', {
+      gameId,
+      timeControl: player1.timeControl,
+      opponent: opponentForPlayer1,
+      player: {
+        userId: player1.userId,
+        username: player1.isGuest ? player1.guestName : player1.username,
+        isGuest: player1.isGuest || false,
+        elo: player1.elo
+      }
+    });
+
+    gameSocketService.emitToSocket(player2SocketId, 'matchmaking-found', {
+      gameId,
+      timeControl: player2.timeControl,
+      opponent: opponentForPlayer2,
+      player: {
+        userId: player2.userId,
+        username: player2.isGuest ? player2.guestName : player2.username,
+        isGuest: player2.isGuest || false,
+        elo: player2.elo
+      }
+    });
+
+    if ((!player1SocketId || !player2SocketId) && this.io) {
+      this.io.emit('matchmaking-found', {
+        fallback: true,
+        details: { player1: player1.userId, player2: player2.userId, gameId }
+      });
     }
 
-    console.log(`Match found: ${player1.isGuest ? player1.guestName : player1.username} vs ${player2.isGuest ? player2.guestName : player2.username} - Game ID: ${gameId}`);
-    console.log(`Notifications sent to sockets: Player1(${player1SocketId}) Player2(${player2SocketId})`);
+    console.debug(`[matchmaking] Match created (${gameId}) :: ${player1.username} ↔ ${player2.username}`);
   }
 }
 

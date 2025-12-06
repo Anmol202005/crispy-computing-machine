@@ -1,9 +1,10 @@
 import { Server, Socket } from 'socket.io';
 import { gameService } from '../services/game.service';
+import type { GameCompletionPayload } from '../services/game.service';
 import { matchmakingService } from '../services/matchmaking.service';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user';
-import { Game } from '../models/game.models';
+import { Game, Color, Result } from '../models/game.models';
 
 interface AuthenticatedSocket extends Socket {
   user?: {
@@ -21,9 +22,13 @@ interface GameRoom {
 
 class GameSocketService {
   private gameRooms = new Map<string, GameRoom>();
-  private playerSockets = new Map<string, string>(); // userId -> socketId
+  private playerSockets = new Map<string, string>();
+  private io?: Server;
+  private clockIntervals = new Map<string, NodeJS.Timeout>();
 
   setupSocket(io: Server) {
+    this.io = io;
+
     io.use(async (socket: AuthenticatedSocket, next) => {
       try {
         const token = socket.handshake.auth.token;
@@ -94,11 +99,25 @@ class GameSocketService {
           socket.emit('game-state', gameState);
 
           const playersConnected = Array.from(room.players.keys());
-          io.to(gameId).emit('players-connected', {
-            whiteConnected: playersConnected.includes(game.whitePlayerId || ''),
-            blackConnected: playersConnected.includes(game.blackPlayerId || ''),
-            spectatorCount: Math.max(0, room.players.size - 2)
+          const whiteConnected = playersConnected.includes(game.whitePlayerId || '');
+          const blackConnected = playersConnected.includes(game.blackPlayerId || '');
+
+          this.emitToRoom(gameId, 'players-connected', {
+            whiteConnected,
+            blackConnected,
+            spectatorCount: Math.max(0, room.players.size - 2),
           });
+
+          if (whiteConnected && blackConnected) {
+            gameService.startGameClockIfNeeded(gameId).catch((err) =>
+              console.error('Failed to start game clock:', err)
+            );
+          }
+
+          // Start clock sync for active games
+          if (game.status === 'active' && !this.clockIntervals.has(gameId)) {
+            this.startClockSync(gameId);
+          }
 
         } catch (error) {
           console.error('Error joining game:', error);
@@ -125,11 +144,8 @@ class GameSocketService {
             player: socket.user?.username || socket.guestId
           });
 
-          if (result.gameState?.isGameOver) {
-            io.to(data.gameId).emit('game-over', {
-              result: result.game?.result,
-              winner: result.game?.winner
-            });
+          if (result.completion) {
+            this.publishGameCompletion(result.completion);
           }
 
         } catch (error) {
@@ -151,7 +167,6 @@ class GameSocketService {
           const resignedPlayer = socket.user?.username || socket.guestId;
           const winnerUserId = game.winner;
 
-          // Determine winner details
           const isWhiteWinner = game.winner === game.whitePlayerId;
           const winnerName = isWhiteWinner ? game.whitePlayerName : game.blackPlayerName;
 
@@ -163,22 +178,15 @@ class GameSocketService {
             winner: {
               userId: winnerUserId,
               username: winnerName,
-              color: isWhiteWinner ? 'white' : 'black'
-            }
+              color: isWhiteWinner ? Color.WHITE : Color.BLACK
+            },
+            ratings: result.completion?.ratings ?? null
           };
 
-          // Notify all players in the game room about the resignation
-          io.to(gameId).emit('game-resigned', resignationData);
+          this.emitToRoom(gameId, 'game-resigned', resignationData);
 
-          // Also send direct notifications to both players to ensure delivery
-          const whitePlayerSocketId = this.playerSockets.get(game.whitePlayerId || '');
-          const blackPlayerSocketId = this.playerSockets.get(game.blackPlayerId || '');
-
-          if (whitePlayerSocketId) {
-            io.to(whitePlayerSocketId).emit('game-resigned', resignationData);
-          }
-          if (blackPlayerSocketId) {
-            io.to(blackPlayerSocketId).emit('game-resigned', resignationData);
+          if (result.completion) {
+            this.publishGameCompletion(result.completion);
           }
 
         } catch (error) {
@@ -217,27 +225,22 @@ class GameSocketService {
         console.log('Draw accepted in game:', gameId);
 
         try {
-          // Update game in database to mark as draw
-          const game = await Game.findById(gameId);
-          if (game) {
-            game.status = 'completed' as any;
-            game.result = 'draw' as any;
-            await game.save();
+          const conclusion = await gameService.completeDraw(gameId, 'DRAW_AGREEMENT');
+          if (!conclusion.success || !conclusion.completion) {
+            socket.emit('error', { message: conclusion.error ?? 'Unable to complete draw' });
+            return;
           }
 
-          // Notify all players in the game room
-          io.to(gameId).emit('draw-accept', {
-            timestamp: new Date()
+          this.emitToRoom(gameId, 'draw-accept', {
+            timestamp: new Date(),
+            acceptedBy: socket.user?.username || socket.guestId,
+            ratings: conclusion.completion.ratings ?? null
           });
 
-          // End the game as a draw
-          io.to(gameId).emit('game-over', {
-            type: 'draw',
-            message: 'Game ended in a draw by agreement',
-            timestamp: new Date()
-          });
+          this.publishGameCompletion(conclusion.completion);
         } catch (error) {
           console.error('Error accepting draw:', error);
+          socket.emit('error', { message: 'Failed to accept draw' });
         }
       });
 
@@ -278,7 +281,7 @@ class GameSocketService {
               gameState.then(state => {
                 if (state) {
                   const playersConnected = Array.from(room.players.keys());
-                  io.to(gameId).emit('players-connected', {
+                  this.emitToRoom(gameId, 'players-connected', {
                     whiteConnected: playersConnected.includes(state.game.whitePlayerId || ''),
                     blackConnected: playersConnected.includes(state.game.blackPlayerId || ''),
                     spectatorCount: Math.max(0, room.players.size - 2)
@@ -287,9 +290,10 @@ class GameSocketService {
               });
             }
 
-            // Clean up empty rooms
+            // Clean up empty rooms and stop clock sync
             if (room.players.size === 0) {
               this.gameRooms.delete(gameId);
+              this.stopClockSync(gameId);
             }
           }
         }
@@ -298,6 +302,61 @@ class GameSocketService {
         matchmakingService.leaveMatchmaking(userId);
       });
     });
+  }
+
+  private startClockSync(gameId: string): void {
+    if (this.clockIntervals.has(gameId)) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const gameState = await gameService.getGameState(gameId);
+        if (!gameState || gameState.game.status !== 'active') {
+          this.stopClockSync(gameId);
+          return;
+        }
+
+        const { clock, game } = gameState;
+        const currentTurn = clock.currentTurn;
+        const timeRemaining = currentTurn === Color.WHITE 
+          ? clock.whiteTimeRemaining 
+          : clock.blackTimeRemaining;
+
+        // Check for timeout and end game
+        if (timeRemaining <= 0) {
+          console.log(`Timeout detected in game ${gameId} for ${currentTurn}`);
+          this.stopClockSync(gameId);
+          
+          // Trigger timeout completion
+          const timedOutColor = currentTurn;
+          const result = await gameService.handleTimeout(gameId, timedOutColor);
+          
+          if (result.success && result.completion) {
+            this.publishGameCompletion(result.completion);
+          }
+          return;
+        }
+
+        // Broadcast clock update
+        this.emitToRoom(gameId, 'clock-sync', {
+          clock: gameState.clock
+        });
+
+      } catch (error) {
+        console.error(`Error syncing clock for game ${gameId}:`, error);
+      }
+    }, 1000);
+
+    this.clockIntervals.set(gameId, interval);
+    console.log(`Started clock sync for game ${gameId}`);
+  }
+
+  private stopClockSync(gameId: string): void {
+    const interval = this.clockIntervals.get(gameId);
+    if (interval) {
+      clearInterval(interval);
+      this.clockIntervals.delete(gameId);
+      console.log(`Stopped clock sync for game ${gameId}`);
+    }
   }
 
   getConnectedPlayers(): number {
@@ -310,6 +369,93 @@ class GameSocketService {
 
   getPlayerSocketId(userId: string): string | undefined {
     return this.playerSockets.get(userId);
+  }
+
+  public emitToSocket(socketId: string | undefined, event: string, payload: unknown): boolean {
+    if (!socketId) {
+      return false;
+    }
+    if (!this.io) {
+      console.warn(`[socket] Unable to emit "${event}" - socket server not initialised.`);
+      return false;
+    }
+    this.io.to(socketId).emit(event, payload);
+    return true;
+  }
+
+  public emitToRoom(roomId: string, event: string, payload: unknown): boolean {
+    if (!this.io) {
+      console.warn(`[socket] Unable to emit "${event}" to room ${roomId} - socket server not initialised.`);
+      return false;
+    }
+    this.io.to(roomId).emit(event, payload);
+    return true;
+  }
+
+  public publishGameCompletion(completion: GameCompletionPayload): void {
+    if (!this.io) {
+      console.warn('[socket] publishGameCompletion called before socket server initialised.');
+      return;
+    }
+
+    const gameId = completion.game.id;
+    
+    // Stop clock sync when game completes
+    this.stopClockSync(gameId);
+
+    const winnerId = completion.winnerId ?? null;
+    const loserId = winnerId
+      ? (winnerId === completion.game.whitePlayerId ? completion.game.blackPlayerId : completion.game.whitePlayerId)
+      : null;
+
+    const winnerPayload = winnerId && completion.winnerColor
+      ? {
+          userId: winnerId,
+          username: completion.winnerColor === Color.WHITE
+            ? completion.game.whitePlayerName
+            : completion.game.blackPlayerName,
+          color: completion.winnerColor
+        }
+      : null;
+
+    this.emitToRoom(gameId, 'game-over', {
+      gameId,
+      result: completion.result,
+      reason: completion.reason,
+      winner: winnerPayload,
+      winnerId,
+      loserId,
+      ratings: completion.ratings ?? null,
+      movesCount: completion.game.moves?.length ?? 0,
+      matchDate: new Date(completion.game.updatedAt ?? completion.game.createdAt ?? new Date()).toISOString(),
+      timeControl: completion.game.timeControl
+    });
+
+    const whitePlayerId = completion.game.whitePlayerId;
+    const blackPlayerId = completion.game.blackPlayerId;
+
+    if (completion.ratings && (whitePlayerId || blackPlayerId)) {
+      const whiteSocketId = whitePlayerId ? this.playerSockets.get(whitePlayerId) : undefined;
+      const blackSocketId = blackPlayerId ? this.playerSockets.get(blackPlayerId) : undefined;
+
+      if (whiteSocketId) {
+        this.emitToSocket(whiteSocketId, "rating-updated", {
+          gameId,
+          playerColor: Color.WHITE,
+          self: completion.ratings.white ?? null,
+          opponent: completion.ratings.black ?? null,
+        });
+      }
+
+      if (blackSocketId) {
+        this.emitToSocket(blackSocketId, "rating-updated", {
+          gameId,
+          playerColor: Color.BLACK,
+          self: completion.ratings.black ?? null,
+          opponent: completion.ratings.white ?? null,
+        });
+      }
+    }
   }
 }
 

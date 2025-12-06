@@ -9,7 +9,9 @@ import {
   makeMove,
   resignGame,
   getPlayerGames,
-  getMatchmakingStatus
+  getMatchmakingStatus,
+  getPerformanceByFormat,
+  getPlayerGamesSummary
 } from '../controllers/game.controller';
 
 const router = Router();
@@ -353,6 +355,96 @@ router.get('/matchmaking/status', authenticateToken, getMatchmakingStatus);
  *         description: Unauthorized
  */
 router.get('/games', authenticateToken, getPlayerGames);
+
+/**
+ * @swagger
+ * /api/game/games/summary:
+ *   get:
+ *     tags:
+ *       - Games
+ *     summary: Get compact game summaries
+ *     description: Returns opponent info, result, move count, and match date for recent games.
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of summarized games
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 games:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       gameId:
+ *                         type: string
+ *                       opponentName:
+ *                         type: string
+ *                       opponentElo:
+ *                         type: number
+ *                         nullable: true
+ *                       playerElo:
+ *                         type: number
+ *                         nullable: true
+ *                       result:
+ *                         type: string
+ *                         enum: [white_wins, black_wins, draw, null]
+ *                       movesCount:
+ *                         type: number
+ *                       matchDate:
+ *                         type: string
+ *                         format: date-time
+ *                       playerColor:
+ *                         type: string
+ *                         enum: [white, black]
+ *                       playerResult:
+ *                         type: string
+ *                         enum: [win, loss, draw]
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/games/summary', authenticateToken, getPlayerGamesSummary);
+
+/**
+ * @swagger
+ * /api/game/performance:
+ *   get:
+ *     tags:
+ *       - Games
+ *     summary: Get performance by format
+ *     description: Get player's performance statistics grouped by game format (Bullet, Blitz, Rapid)
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Performance statistics by format
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   format:
+ *                     type: string
+ *                     enum: [Overall, Bullet, Blitz, Rapid]
+ *                   played:
+ *                     type: number
+ *                   wins:
+ *                     type: number
+ *                   losses:
+ *                     type: number
+ *                   draws:
+ *                     type: number
+ *                   winRate:
+ *                     type: number
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/performance', authenticateToken, getPerformanceByFormat);
 
 /**
  * @swagger
