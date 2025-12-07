@@ -264,9 +264,32 @@ export const getPlayerGamesSummary = async (req: AuthRequest, res: Response): Pr
     }
 
     const games = await gameService.getPlayerGamesSummary(userId);
-    res.json({ games });
+    
+    // Get current user ELO to include in response
+    const currentUser = await User.findById(userId);
+    const currentElo = currentUser?.elo ?? 300;
+    
+    // Get streak stats
+    const streakStats = await gameService.getStreakStats(userId);
+    
+    res.json({ games, currentElo, streakStats });
   } catch (error) {
     console.error('Error getting game summaries:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export const getWeeklyInsights = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      res.status(401).json({ message: 'Unauthorized' });
+      return;
+    }
+    const data = await gameService.getWeeklyInsights(userId);
+    res.json(data);
+  } catch (error) {
+    console.error('Error getting weekly insights:', error);
     res.status(500).json({ message: 'Internal server error' });
   }
 };
@@ -283,9 +306,9 @@ export const getPerformanceByFormat = async (req: AuthRequest, res: Response): P
     res.json(performance);
   } catch (error) {
     console.error('Error getting performance by format:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Internal server error';
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     res.status(500).json({ 
-      message: 'Failed to fetch performance data',
+      message: 'Failed to get performance statistics',
       error: errorMessage 
     });
   }

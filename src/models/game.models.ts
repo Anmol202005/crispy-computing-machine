@@ -25,6 +25,8 @@ export interface IGame extends Document {
   blackPlayerName: string,
   whitePlayerAvatar: string,
   blackPlayerAvatar: string,
+  whitePlayerElo?: number | null, // ELO at match start
+  blackPlayerElo?: number | null, // ELO at match start
   currentTurn: Color,
   status: Status,
   fen: string,
@@ -69,6 +71,14 @@ const gameSchema = new Schema<IGame>({
   blackPlayerAvatar: {
     type: String,
     default: 'avatar1.svg',
+  },
+  whitePlayerElo: {
+    type: Number,
+    default: null,
+  },
+  blackPlayerElo: {
+    type: Number,
+    default: null,
   },
   currentTurn: {
     type: String,

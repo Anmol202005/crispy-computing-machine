@@ -48,6 +48,10 @@ const options: swaggerJSDoc.Options = {
             blackPlayerId: { type: 'string' },
             whitePlayerName: { type: 'string' },
             blackPlayerName: { type: 'string' },
+            whitePlayerAvatar: { type: 'string' },
+            blackPlayerAvatar: { type: 'string' },
+            whitePlayerElo: { type: 'number', nullable: true },
+            blackPlayerElo: { type: 'number', nullable: true },
             currentTurn: { type: 'string', enum: ['white', 'black'] },
             status: { type: 'string', enum: ['active', 'completed'] },
             fen: { type: 'string' },
@@ -178,7 +182,7 @@ export const setupSwagger = (app: Express): void => {
     res.send(specs);
   });
 
-  console.log(`📖 Swagger docs available at: /api-docs`);
+  console.log(`Swagger docs available at: /api-docs`);
 };
 
 export default specs;

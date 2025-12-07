@@ -11,7 +11,8 @@ import {
   getPlayerGames,
   getMatchmakingStatus,
   getPerformanceByFormat,
-  getPlayerGamesSummary
+  getPlayerGamesSummary,
+  getWeeklyInsights
 } from '../controllers/game.controller';
 
 const router = Router();
@@ -362,13 +363,13 @@ router.get('/games', authenticateToken, getPlayerGames);
  *   get:
  *     tags:
  *       - Games
- *     summary: Get compact game summaries
- *     description: Returns opponent info, result, move count, and match date for recent games.
+ *     summary: Get compact game summaries with current ELO and streak stats
+ *     description: Returns opponent info, result, move count, match date for recent games, plus current ELO and win/loss streak statistics.
  *     security:
  *       - BearerAuth: []
  *     responses:
  *       200:
- *         description: List of summarized games
+ *         description: List of summarized games with ELO and streak data
  *         content:
  *           application/json:
  *             schema:
@@ -403,6 +404,19 @@ router.get('/games', authenticateToken, getPlayerGames);
  *                       playerResult:
  *                         type: string
  *                         enum: [win, loss, draw]
+ *                 currentElo:
+ *                   type: number
+ *                   example: 1450
+ *                 streakStats:
+ *                   type: object
+ *                   properties:
+ *                     currentStreak:
+ *                       type: number
+ *                     longestStreak:
+ *                       type: number
+ *                     type:
+ *                       type: string
+ *                       enum: [win, loss, draw, null]
  *       401:
  *         description: Unauthorized
  */
@@ -576,5 +590,34 @@ router.post('/:gameId/move', authenticateToken, makeMove);
 // Resign endpoint - supports both authenticated users and guests
 // Uses optional auth: populates req.user if token provided, allows guests otherwise
 router.post('/:gameId/resign', optionalAuth, resignGame);
+
+/**
+ * @swagger
+ * /api/game/user/elo:
+ *   get:
+ *     tags:
+ *       - User
+ *     summary: Get current user ELO
+ *     description: Fetch the latest ELO rating for the authenticated user
+ *     security:
+ *       - BearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Current ELO rating
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 elo:
+ *                   type: number
+ *                   example: 1450
+ *       401:
+ *         description: Unauthorized
+ */
+// router.get('/user/elo', authenticateToken, getCurrentElo);
+
+// Weekly insights (ELO trend + breakdown last 7 days)
+router.get('/insights/weekly', authenticateToken, getWeeklyInsights);
 
 export default router;

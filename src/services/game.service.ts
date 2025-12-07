@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { Chess, Move } from 'chess.js';
 import { Game, IGame, Color, Status, Result } from '../models/game.models';
 import { User } from '../models/user';
@@ -302,29 +303,16 @@ class GameService {
       status: Status.COMPLETED
     }).sort({ updatedAt: -1 });
 
-    const relatedIds = new Set<string>([userId]);
-    games.forEach(game => {
-      const perspective = this.buildPerspective(game, userId);
-      if (perspective?.opponentId && !perspective.opponentId.startsWith('guest_')) {
-        relatedIds.add(perspective.opponentId);
-      }
-      if (game.whitePlayerId) relatedIds.add(game.whitePlayerId);
-      if (game.blackPlayerId) relatedIds.add(game.blackPlayerId);
-    });
-
-    const profiles = await User.find({ _id: { $in: Array.from(relatedIds) } }, { elo: 1 }).lean();
-    const eloMap = new Map<string, number>(
-      profiles.map(profile => [profile._id.toString(), profile.elo])
-    );
-
     return games
       .map(game => {
         const perspective = this.buildPerspective(game, userId);
         if (!perspective) return null;
 
         const timestamp = game.updatedAt ?? game.createdAt ?? new Date();
-        const opponentElo = perspective.opponentId ? eloMap.get(perspective.opponentId) ?? null : null;
-        const playerElo = eloMap.get(userId) ?? null;
+        // Use stored start-of-match ELO instead of current ELO
+        const isWhite = game.whitePlayerId?.toString() === userId.toString();
+        const playerElo = isWhite ? (game.whitePlayerElo ?? null) : (game.blackPlayerElo ?? null);
+        const opponentElo = isWhite ? (game.blackPlayerElo ?? null) : (game.whitePlayerElo ?? null);
 
         return {
           gameId: game.id,
@@ -384,10 +372,6 @@ class GameService {
   }
 
   private async applyRatingUpdates(game: IGame, scores: { white: number; black: number }): Promise<RatingSummary | undefined> {
-    if (game.isGuestGame) {
-      return undefined;
-    }
-
     const whiteId = game.whitePlayerId;
     const blackId = game.blackPlayerId;
 
@@ -395,17 +379,23 @@ class GameService {
       return undefined;
     }
 
-    const [whitePlayer, blackPlayer] = await Promise.all([
-      User.findById(whiteId),
-      User.findById(blackId)
-    ]);
+    // Check if both players are guests
+    const isWhiteGuest = whiteId.startsWith('guest_');
+    const isBlackGuest = blackId.startsWith('guest_');
 
-    if (!whitePlayer || !blackPlayer) {
+    // If both players are guests, no rating updates
+    if (isWhiteGuest && isBlackGuest) {
       return undefined;
     }
 
-    const whiteOld = whitePlayer.elo;
-    const blackOld = blackPlayer.elo;
+    const [whitePlayer, blackPlayer] = await Promise.all([
+     isWhiteGuest ? null : User.findById(whiteId),
+     isBlackGuest ? null : User.findById(blackId)
+    ]);
+
+    // Get current ratings (use stored start-of-match rating for guests)
+    const whiteOld = whitePlayer?.elo ?? game.whitePlayerElo ?? 300;
+    const blackOld = blackPlayer?.elo ?? game.blackPlayerElo ?? 300;
 
     const expectedWhite = 1 / (1 + Math.pow(10, (blackOld - whiteOld) / 400));
     const expectedBlack = 1 / (1 + Math.pow(10, (whiteOld - blackOld) / 400));
@@ -415,22 +405,27 @@ class GameService {
     const whiteNew = Math.round(whiteOld + K * (scores.white - expectedWhite));
     const blackNew = Math.round(blackOld + K * (scores.black - expectedBlack));
 
-    whitePlayer.elo = whiteNew;
-    blackPlayer.elo = blackNew;
-
-    await Promise.all([whitePlayer.save(), blackPlayer.save()]);
+    // Only update registered users
+    if (whitePlayer) {
+      whitePlayer.elo = whiteNew;
+      await whitePlayer.save();
+    }
+    if (blackPlayer) {
+      blackPlayer.elo = blackNew;
+      await blackPlayer.save();
+    }
 
     return {
-      white: {
+     white: whitePlayer ? {
         oldRating: whiteOld,
         newRating: whiteNew,
         delta: whiteNew - whiteOld
-      },
-      black: {
+     } : undefined,
+     black: blackPlayer ? {
         oldRating: blackOld,
         newRating: blackNew,
         delta: blackNew - blackOld
-      }
+     } : undefined
     };
   }
 
@@ -681,6 +676,151 @@ class GameService {
       isGameOver: chess.isGameOver(),
       clock
     };
+  }
+
+  async getWeeklyInsights(userId: string): Promise<{
+    eloTrend: { days: string[]; ratings: number[] };
+    breakdown: { days: string[]; wins: number[]; losses: number[]; draws: number[] };
+  }> {
+    const formatDayKey = (d: Date) => {
+      const dd = String(d.getUTCDate()).padStart(2, '0');
+      const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+      return `${dd}-${mm}`;
+    };
+
+    const now = new Date();
+    const start = new Date(now);
+    start.setUTCHours(0, 0, 0, 0);
+    start.setUTCDate(start.getUTCDate() - 6);
+
+    const games = await Game.find({
+      $or: [{ whitePlayerId: userId }, { blackPlayerId: userId }],
+      status: Status.COMPLETED,
+      updatedAt: { $gte: start }
+    }).sort({ updatedAt: 1 });
+
+    const days: string[] = [];
+    const wins: number[] = [];
+    const losses: number[] = [];
+    const draws: number[] = [];
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setUTCDate(start.getUTCDate() + i);
+      const label = formatDayKey(d);
+      days.push(label);
+      wins.push(0); losses.push(0); draws.push(0);
+    }
+
+    // Get user's current ELO - this is the ground truth
+    const userRecord = await User.findById(userId);
+    const currentRating = userRecord?.elo ?? 300;
+    
+    // Calculate total ELO change from all games in the week
+    const K = 32;
+    let totalDelta = 0;
+    
+    const dailyRating = new Map<string, number>();
+    
+    // Process games to calculate deltas and update breakdown
+    games.forEach(g => {
+      const ts = g.updatedAt ?? g.createdAt ?? new Date();
+      const day = new Date(ts);
+      day.setUTCHours(0, 0, 0, 0);
+      const label = formatDayKey(day);
+      if (!days.includes(label)) return;
+
+      const isWhite = g.whitePlayerId?.toString() === userId.toString();
+      const playerStart = isWhite ? (g.whitePlayerElo ?? 300) : (g.blackPlayerElo ?? 300);
+      const oppStart = isWhite ? (g.blackPlayerElo ?? 300) : (g.whitePlayerElo ?? 300);
+
+      // Determine score
+      let score: number = 0.5;
+      if (g.result === Result.WHITE_WINS) score = isWhite ? 1 : 0;
+      else if (g.result === Result.BLACK_WINS) score = isWhite ? 0 : 1;
+
+      // Calculate ELO change
+      const expected = 1 / (1 + Math.pow(10, (oppStart - playerStart) / 400));
+      const delta = Math.round(K * (score - expected));
+      
+      totalDelta += delta;
+
+      // Store cumulative delta for each day
+      const currentDayDelta = dailyRating.get(label) ?? 0;
+      dailyRating.set(label, currentDayDelta + delta);
+
+      // Update breakdown
+      const idx = days.indexOf(label);
+      if (idx !== -1) {
+        if (score === 1) wins[idx] += 1;
+        else if (score === 0) losses[idx] += 1;
+        else draws[idx] += 1;
+      }
+    });
+
+    // Calculate starting rating: current ELO - total change
+    const ratingBeforeWeek = currentRating - totalDelta;
+    
+    // Build ratings array with cumulative changes
+    const ratings: number[] = [];
+    let cumulativeDelta = 0;
+    
+    days.forEach(day => {
+      if (dailyRating.has(day)) {
+        cumulativeDelta += dailyRating.get(day)!;
+      }
+      // Rating = starting rating + cumulative delta up to this day
+      ratings.push(ratingBeforeWeek + cumulativeDelta);
+    });
+
+    // Ensure the last rating matches current ELO exactly
+    if (ratings.length > 0) {
+      ratings[ratings.length - 1] = currentRating;
+    }
+
+    console.log('Weekly Insights Debug:');
+    console.log('Days (oldest to newest):', days);
+    console.log('Current ELO from User:', currentRating);
+    console.log('Total delta from games:', totalDelta);
+    console.log('Calculated start rating:', ratingBeforeWeek);
+    console.log('Ratings array:', ratings);
+    console.log('Final rating (should match current):', ratings[ratings.length - 1]);
+
+    return {
+      eloTrend: { days, ratings },
+      breakdown: { days, wins, losses, draws }
+    };
+  }
+
+  async getStreakStats(userId: string): Promise<{ currentStreak: number; longestStreak: number; type: 'win' | 'loss' | 'draw' | null }> {
+    const games = await Game.find({
+      $or: [{ whitePlayerId: userId }, { blackPlayerId: userId }],
+      status: Status.COMPLETED
+    }).sort({ updatedAt: -1 }).limit(100);
+
+    let currentType: 'win' | 'loss' | 'draw' | null = null;
+    let currentStreak = 0;
+    let longestStreak = 0;
+
+    games.forEach((g, idx) => {
+      const p = this.buildPerspective(g, userId);
+      if (!p) return;
+      if (idx === 0) {
+        currentType = p.playerResult;
+        currentStreak = 1;
+        longestStreak = 1;
+        return;
+      }
+      if (p.playerResult === currentType) {
+        currentStreak += 1;
+      } else {
+        currentType = p.playerResult;
+        currentStreak = 1;
+      }
+      longestStreak = Math.max(longestStreak, currentStreak);
+    });
+
+    return { currentStreak, longestStreak, type: currentType };
   }
 }
 

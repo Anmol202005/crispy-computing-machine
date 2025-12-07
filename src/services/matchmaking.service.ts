@@ -106,6 +106,9 @@ class MatchmakingService {
       blackTimeRemaining: baseSeconds,
       lastMoveAt: null,
       clockStarted: false,
+      // Store ELO at match start for accurate historical tracking
+      whitePlayerElo: isPlayer1White ? player1.elo : player2.elo,
+      blackPlayerElo: isPlayer1White ? player2.elo : player1.elo,
     };
 
     console.debug('Creating game with timeControl:', player1.timeControl);
