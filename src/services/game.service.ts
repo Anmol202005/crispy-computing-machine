@@ -778,14 +778,6 @@ class GameService {
       ratings[ratings.length - 1] = currentRating;
     }
 
-    console.log('Weekly Insights Debug:');
-    console.log('Days (oldest to newest):', days);
-    console.log('Current ELO from User:', currentRating);
-    console.log('Total delta from games:', totalDelta);
-    console.log('Calculated start rating:', ratingBeforeWeek);
-    console.log('Ratings array:', ratings);
-    console.log('Final rating (should match current):', ratings[ratings.length - 1]);
-
     return {
       eloTrend: { days, ratings },
       breakdown: { days, wins, losses, draws }

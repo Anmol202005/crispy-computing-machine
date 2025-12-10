@@ -18,9 +18,9 @@ type WaitingPlayer = MatchmakingRequest & { timestamp: number };
 
 class MatchmakingService {
   private waitingPlayers: Map<string, WaitingPlayer> = new Map();
-  private readonly ELO_RANGE_BASE = 200; // Increased from 100 to allow more flexible matching
-  private readonly ELO_RANGE_INCREMENT = 100; // Increased from 50
-  private readonly MAX_WAIT_TIME = 30000; // 30 seconds
+  private readonly ELO_RANGE_BASE = 200;
+  private readonly ELO_RANGE_INCREMENT = 100;
+  private readonly MAX_WAIT_TIME = 180000; // Changed from 30000 to 180000 (3 minutes)
   private io: Server | null = null;
 
   setSocketServer(io: Server): void {
@@ -123,7 +123,14 @@ class MatchmakingService {
       const player = this.waitingPlayers.get(userId);
       if (player && Date.now() - player.timestamp >= this.MAX_WAIT_TIME) {
         this.waitingPlayers.delete(userId);
-        console.debug(`[matchmaking] Removed ${userId} from queue after timeout.`);
+        
+        // Notify player via socket that matchmaking timed out
+        const socketId = gameSocketService.getPlayerSocketId(userId);
+        if (socketId) {
+          gameSocketService.emitToSocket(socketId, 'matchmaking-timeout', {
+            message: 'No opponent found. Please try again.'
+          });
+        }
       }
     }, this.MAX_WAIT_TIME);
   }
